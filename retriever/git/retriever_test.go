@@ -3,7 +3,9 @@ package git
 import (
 	"context"
 	"errors"
+	"io/ioutil"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -139,6 +141,76 @@ func TestGitRetrieveCloneThenFetchRepo(t *testing.T) {
 			require.Equal(t, tr.content, string(content))
 		})
 	}
+}
+
+func TestGitRetrievePrivateRepoAuth(t *testing.T) {
+	username := "SyslBot"
+	password := os.Getenv("TEST_PRIV_REPO_TOKEN")
+	resource := ParseResource(t, privRepoREADME)
+
+	monkey.Patch(NewSSHAgent, func() (*SSHAgent, error) {
+		return nil, errors.New("Create SSH Agent failed")
+	})
+
+	noneGit := New(nil)
+	c, err := noneGit.Retrieve(context.Background(), resource)
+	require.EqualError(t, err, "git clone: Unable to authenticate, tried: \n    - None: authentication required")
+	require.Equal(t, "", string(c))
+
+	tokenGit := New(&AuthOptions{Tokens: map[string]string{"github.com": password}})
+	c, err = tokenGit.Retrieve(context.Background(), resource)
+	require.NoError(t, err)
+	require.Equal(t, privRepoContent, string(c))
+
+	wrongTokenGit := New(&AuthOptions{Tokens: map[string]string{"github.com": "foobar"}})
+	c, err = wrongTokenGit.Retrieve(context.Background(), resource)
+	require.EqualError(t, err, "git clone: Unable to authenticate, tried: \n    - None: authentication required,\n    - Username and Password/Token: authentication required")
+	require.Equal(t, "", string(c))
+
+	pwGit := New(&AuthOptions{Credentials: map[string]Credential{"github.com": Credential{username, password}}})
+	c, err = pwGit.Retrieve(context.Background(), resource)
+	require.NoError(t, err)
+	require.Equal(t, privRepoContent, string(c))
+
+	tmpDir := "tmpdir"
+	sshKey := tmpDir + "/id_ed25519"
+	repodir := filepath.Join(tmpDir, testHost+"/a-private-repo")
+
+	err = os.Mkdir(tmpDir, os.ModePerm)
+	require.NoError(t, err)
+	err = ioutil.WriteFile(sshKey, []byte(os.Getenv("TEST_SSH_KEY")), os.ModePerm)
+	require.NoError(t, err)
+
+	keyGit := New(&AuthOptions{SSHPrivateKey: sshKey}, NewFscache(tmpDir))
+	c, err = keyGit.Retrieve(context.Background(), resource)
+	require.NoError(t, err)
+	require.Equal(t, content, string(c))
+
+	err = exec.Command("ssh-add", "-K", sshKey).Run()
+	require.NoError(t, err)
+
+	defer func() {
+		err = exec.Command("ssh-add", "-d", sshKey).Run()
+		require.NoError(t, err)
+	}()
+
+	clearTmpdir := func(t *testing.T, repodir, dir string) {
+		_, err = os.Stat(repodir)
+		require.NoError(t, err)
+		err = os.RemoveAll(dir)
+		require.NoError(t, err)
+	}
+
+	clearTmpdir(t, repodir, tmpDir)
+
+	monkey.UnpatchAll()
+
+	sshagentGit := New(nil, NewFscache(tmpDir))
+	c, err = sshagentGit.Retrieve(context.Background(), resource)
+	require.NoError(t, err)
+	require.Equal(t, content, string(c))
+
+	clearTmpdir(t, repodir, tmpDir)
 }
 
 func BenchmarkGitRetrieveHash(b *testing.B) {
