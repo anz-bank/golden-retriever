@@ -188,52 +188,6 @@ func TestGitRetrievePrivateRepoAuthPassword(t *testing.T) {
 	require.Equal(t, privRepoContent, string(c))
 }
 
-func TestGitRetrievePrivateRepoAuthSSH(t *testing.T) {
-	monkey.Patch(NewSSHAgent, func() (*SSHAgent, error) {
-		return nil, errors.New("Create SSH Agent failed")
-	})
-
-	tmpDir := "tmpdir"
-	// sshKey := tmpDir + "/id_ed25519"
-	repodir := filepath.Join(tmpDir, privRepo)
-
-	// err := os.Mkdir(tmpDir, os.ModePerm)
-	// require.NoError(t, err)
-	// err = ioutil.WriteFile(sshKey, []byte(os.Getenv("TEST_SSH_KEY")), os.ModePerm)
-	// require.NoError(t, err)
-
-	// keyGit := NewWithCache(&AuthOptions{SSHKeys: map[string]SSHKey{"github.com": SSHKey{PrivateKey: sshKey}}}, NewFscache(tmpDir))
-	// c, err := keyGit.Retrieve(context.Background(), ParseResource(t, privRepoREADME))
-	// require.NoError(t, err)
-	// require.Equal(t, privRepoContent, string(c))
-
-	// err = exec.Command("ssh-add", "-K", sshKey).Run()
-	// require.NoError(t, err)
-
-	// defer func() {
-	// 	err = exec.Command("ssh-add", "-d", sshKey).Run()
-	// 	require.NoError(t, err)
-	// }()
-
-	clearTmpdir := func(t *testing.T, repodir, dir string) {
-		_, err = os.Stat(repodir)
-		require.NoError(t, err)
-		err = os.RemoveAll(dir)
-		require.NoError(t, err)
-	}
-
-	// clearTmpdir(t, repodir, tmpDir)
-
-	monkey.UnpatchAll()
-
-	sshagentGit := NewWithCache(nil, NewFscache(tmpDir))
-	c, err := sshagentGit.Retrieve(context.Background(), ParseResource(t, privRepoREADME))
-	require.NoError(t, err)
-	require.Equal(t, privRepoContent, string(c))
-
-	clearTmpdir(t, repodir, tmpDir)
-}
-
 func BenchmarkGitRetrieveHash(b *testing.B) {
 	public := pubRepoREADME + "@" + pubRepoInitSHA
 	resource := ParseResource(b, public)
