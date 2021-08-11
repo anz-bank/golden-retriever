@@ -3,10 +3,7 @@ package git
 import (
 	"context"
 	"errors"
-	"fmt"
-	"io/ioutil"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -197,28 +194,26 @@ func TestGitRetrievePrivateRepoAuthSSH(t *testing.T) {
 	})
 
 	tmpDir := "tmpdir"
-	sshKey := tmpDir + "/id_ed25519"
+	// sshKey := tmpDir + "/id_ed25519"
 	repodir := filepath.Join(tmpDir, privRepo)
 
-	err := os.Mkdir(tmpDir, os.ModePerm)
-	require.NoError(t, err)
-	err = ioutil.WriteFile(sshKey, []byte(os.Getenv("TEST_SSH_KEY")), os.ModePerm)
-	require.NoError(t, err)
-
-	fmt.Println(os.Stat(sshKey))
+	// err := os.Mkdir(tmpDir, os.ModePerm)
+	// require.NoError(t, err)
+	// err = ioutil.WriteFile(sshKey, []byte(os.Getenv("TEST_SSH_KEY")), os.ModePerm)
+	// require.NoError(t, err)
 
 	// keyGit := NewWithCache(&AuthOptions{SSHKeys: map[string]SSHKey{"github.com": SSHKey{PrivateKey: sshKey}}}, NewFscache(tmpDir))
 	// c, err := keyGit.Retrieve(context.Background(), ParseResource(t, privRepoREADME))
 	// require.NoError(t, err)
 	// require.Equal(t, privRepoContent, string(c))
 
-	err = exec.Command("ssh-add", "-K", sshKey).Run()
-	require.NoError(t, err)
+	// err = exec.Command("ssh-add", "-K", sshKey).Run()
+	// require.NoError(t, err)
 
-	defer func() {
-		err = exec.Command("ssh-add", "-d", sshKey).Run()
-		require.NoError(t, err)
-	}()
+	// defer func() {
+	// 	err = exec.Command("ssh-add", "-d", sshKey).Run()
+	// 	require.NoError(t, err)
+	// }()
 
 	clearTmpdir := func(t *testing.T, repodir, dir string) {
 		_, err = os.Stat(repodir)

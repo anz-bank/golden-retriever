@@ -23,7 +23,13 @@ jobs:
         uses: actions/checkout@master
 
       - name: Make Test
-        run: make test
+        run: |
+          echo "${{ secrets.TEST_SSH_KEY }}" >> "./id_ed25519"
+          chmod 400 ./id_ed25519
+          ssh-add -K ./id_ed25519
+          -make test
+          ssh-add -d ./id_ed25519
+          rm id_ed25519
         env:
           TEST_PRIV_REPO_TOKEN: ${{ secrets.TEST_PRIV_REPO_TOKEN }}
           TEST_SSH_KEY: ${{ secrets.TEST_SSH_KEY }}
