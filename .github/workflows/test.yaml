@@ -24,3 +24,6 @@ jobs:
 
       - name: Make Test
         run: make test
+        env:
+          TEST_PRIV_REPO_TOKEN: ${{ secrets.TEST_PRIV_REPO_TOKEN }}
+          TEST_SSH_KEY: ${{ secrets.TEST_SSH_KEY }}

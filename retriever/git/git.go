@@ -123,7 +123,6 @@ func (a Git) FetchRef(ctx context.Context, r *git.Repository, repo string, ref s
 				return nil
 			}
 
-			fmt.Println(err, refSpec)
 			e := a.runFetchCmd(ctx, repo, refSpec)
 			if e == nil {
 				return nil

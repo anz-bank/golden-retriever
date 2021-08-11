@@ -3,7 +3,6 @@ package git
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/anz-bank/golden-retriever/retriever"
 
@@ -78,9 +77,6 @@ func (a Git) Retrieve(ctx context.Context, resource *retriever.Resource) (c []by
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	default:
-		start := time.Now()
-		defer log.Debugf("It took %s to retrieve the content", time.Now().Sub(start))
-
 		r, ok := a.cacher.Get(resource.Repo)
 		if !ok {
 			r, err = a.Clone(ctx, resource)

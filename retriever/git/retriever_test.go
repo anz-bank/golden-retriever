@@ -3,16 +3,14 @@ package git
 import (
 	"context"
 	"errors"
-	"io/ioutil"
+	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
 	"github.com/anz-bank/golden-retriever/retriever"
 
 	"bou.ke/monkey"
-	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
@@ -33,6 +31,11 @@ const (
 	privRepo        = "github.com/SyslBot/a-private-repo"
 	privRepoREADME  = privRepo + "/README.md"
 	privRepoContent = "# a-private-repo\nA private repo for modules testing\n"
+)
+
+var (
+	username = "SyslBot"
+	password = os.Getenv("TEST_PRIV_REPO_TOKEN")
 )
 
 func TestGitRetrieveCloneWrongResource(t *testing.T) {
@@ -90,7 +93,6 @@ func TestGitRetrieveClonePublicRepo(t *testing.T) {
 }
 
 func TestGitRetrieveToFileSystem(t *testing.T) {
-	log.SetLevel(log.DebugLevel)
 	tmpDir := "tmpdir"
 	repodir := filepath.Join(tmpDir, pubRepo)
 	defer func() {
@@ -143,74 +145,81 @@ func TestGitRetrieveCloneThenFetchRepo(t *testing.T) {
 	}
 }
 
-func TestGitRetrievePrivateRepoAuth(t *testing.T) {
-	username := "SyslBot"
-	password := os.Getenv("TEST_PRIV_REPO_TOKEN")
-	resource := ParseResource(t, privRepoREADME)
-
+func TestGitRetrievePrivateRepoAuthNone(t *testing.T) {
 	monkey.Patch(NewSSHAgent, func() (*SSHAgent, error) {
 		return nil, errors.New("Create SSH Agent failed")
 	})
 
+	defer monkey.UnpatchAll()
+
 	noneGit := New(nil)
-	c, err := noneGit.Retrieve(context.Background(), resource)
+	c, err := noneGit.Retrieve(context.Background(), ParseResource(t, privRepoREADME))
 	require.EqualError(t, err, "git clone: Unable to authenticate, tried: \n    - None: authentication required")
 	require.Equal(t, "", string(c))
+}
 
+func TestGitRetrievePrivateRepoAuthToken(t *testing.T) {
+	monkey.Patch(NewSSHAgent, func() (*SSHAgent, error) {
+		return nil, errors.New("Create SSH Agent failed")
+	})
+
+	defer monkey.UnpatchAll()
+
+	fmt.Println("is password empty?", password == "")
 	tokenGit := New(&AuthOptions{Tokens: map[string]string{"github.com": password}})
-	c, err = tokenGit.Retrieve(context.Background(), resource)
+	c, err := tokenGit.Retrieve(context.Background(), ParseResource(t, privRepoREADME))
 	require.NoError(t, err)
 	require.Equal(t, privRepoContent, string(c))
 
 	wrongTokenGit := New(&AuthOptions{Tokens: map[string]string{"github.com": "foobar"}})
-	c, err = wrongTokenGit.Retrieve(context.Background(), resource)
+	c, err = wrongTokenGit.Retrieve(context.Background(), ParseResource(t, privRepoREADME))
 	require.EqualError(t, err, "git clone: Unable to authenticate, tried: \n    - None: authentication required,\n    - Username and Password/Token: authentication required")
 	require.Equal(t, "", string(c))
+}
+
+func TestGitRetrievePrivateRepoAuthPassword(t *testing.T) {
+	monkey.Patch(NewSSHAgent, func() (*SSHAgent, error) {
+		return nil, errors.New("Create SSH Agent failed")
+	})
+
+	defer monkey.UnpatchAll()
 
 	pwGit := New(&AuthOptions{Credentials: map[string]Credential{"github.com": Credential{username, password}}})
-	c, err = pwGit.Retrieve(context.Background(), resource)
+	c, err := pwGit.Retrieve(context.Background(), ParseResource(t, privRepoREADME))
 	require.NoError(t, err)
 	require.Equal(t, privRepoContent, string(c))
+}
 
+func TestGitRetrievePrivateRepoAuthSSHKey(t *testing.T) {
+	monkey.Patch(NewSSHAgent, func() (*SSHAgent, error) {
+		return nil, errors.New("Create SSH Agent failed")
+	})
+
+	defer monkey.UnpatchAll()
+
+	noneGit := New(nil)
+	c, err := noneGit.Retrieve(context.Background(), ParseResource(t, privRepoREADME))
+	require.EqualError(t, err, "git clone: Unable to authenticate, tried: \n    - None: authentication required")
+	require.Equal(t, "", string(c))
+}
+
+func TestGitRetrievePrivateRepoAuthSSHAgent(t *testing.T) {
 	tmpDir := "tmpdir"
-	sshKey := tmpDir + "/id_ed25519"
-	repodir := filepath.Join(tmpDir, testHost+"/a-private-repo")
+	repodir := filepath.Join(tmpDir, privRepo)
 
-	err = os.Mkdir(tmpDir, os.ModePerm)
+	defer clearTmpdir(t, repodir, tmpDir)
+
+	sshagentGit := NewWithCache(nil, NewFscache(tmpDir))
+	c, err := sshagentGit.Retrieve(context.Background(), ParseResource(t, privRepoREADME))
 	require.NoError(t, err)
-	err = ioutil.WriteFile(sshKey, []byte(os.Getenv("TEST_SSH_KEY")), os.ModePerm)
+	require.Equal(t, privRepoContent, string(c))
+}
+
+func clearTmpdir(t *testing.T, repodir, dir string) {
+	_, err := os.Stat(repodir)
 	require.NoError(t, err)
-
-	keyGit := New(&AuthOptions{SSHPrivateKey: sshKey}, NewFscache(tmpDir))
-	c, err = keyGit.Retrieve(context.Background(), resource)
+	err = os.RemoveAll(dir)
 	require.NoError(t, err)
-	require.Equal(t, content, string(c))
-
-	err = exec.Command("ssh-add", "-K", sshKey).Run()
-	require.NoError(t, err)
-
-	defer func() {
-		err = exec.Command("ssh-add", "-d", sshKey).Run()
-		require.NoError(t, err)
-	}()
-
-	clearTmpdir := func(t *testing.T, repodir, dir string) {
-		_, err = os.Stat(repodir)
-		require.NoError(t, err)
-		err = os.RemoveAll(dir)
-		require.NoError(t, err)
-	}
-
-	clearTmpdir(t, repodir, tmpDir)
-
-	monkey.UnpatchAll()
-
-	sshagentGit := New(nil, NewFscache(tmpDir))
-	c, err = sshagentGit.Retrieve(context.Background(), resource)
-	require.NoError(t, err)
-	require.Equal(t, content, string(c))
-
-	clearTmpdir(t, repodir, tmpDir)
 }
 
 func BenchmarkGitRetrieveHash(b *testing.B) {
