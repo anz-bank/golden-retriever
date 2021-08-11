@@ -27,6 +27,8 @@ func NewWithCache(options *AuthOptions, cacher Cacher) *Git {
 
 	if sshagent, err := NewSSHAgent(); err == nil {
 		methods = append(methods, sshagent)
+	} else {
+		log.Debugf("New SSH Agent error: %s", err.Error())
 	}
 
 	if options != nil {
