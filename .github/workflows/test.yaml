@@ -22,5 +22,12 @@ jobs:
       - name: Check out
         uses: actions/checkout@master
 
+      - name: Make Short Test
+        if: ${{ github.repository_owner != 'anz-bank' }}
+        run: make short-test
+
       - name: Make Test
+        if: ${{ github.repository_owner == 'anz-bank' }}
         run: make test
+        env:
+          TEST_PRIV_REPO_TOKEN: ${{ secrets.TEST_PRIV_REPO_TOKEN }}

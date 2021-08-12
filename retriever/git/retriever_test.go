@@ -10,7 +10,6 @@ import (
 	"github.com/anz-bank/golden-retriever/retriever"
 
 	"bou.ke/monkey"
-	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
@@ -31,6 +30,11 @@ const (
 	privRepo        = "github.com/SyslBot/a-private-repo"
 	privRepoREADME  = privRepo + "/README.md"
 	privRepoContent = "# a-private-repo\nA private repo for modules testing\n"
+)
+
+var (
+	username = "SyslBot"
+	password = os.Getenv("TEST_PRIV_REPO_TOKEN")
 )
 
 func TestGitRetrieveCloneWrongResource(t *testing.T) {
@@ -88,7 +92,6 @@ func TestGitRetrieveClonePublicRepo(t *testing.T) {
 }
 
 func TestGitRetrieveToFileSystem(t *testing.T) {
-	log.SetLevel(log.DebugLevel)
 	tmpDir := "tmpdir"
 	repodir := filepath.Join(tmpDir, pubRepo)
 	defer func() {
@@ -139,6 +142,62 @@ func TestGitRetrieveCloneThenFetchRepo(t *testing.T) {
 			require.Equal(t, tr.content, string(content))
 		})
 	}
+}
+
+func TestGitRetrievePrivateRepoAuthNone(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
+	monkey.Patch(NewSSHAgent, func() (*SSHAgent, error) {
+		return nil, errors.New("Create SSH Agent failed")
+	})
+
+	defer monkey.UnpatchAll()
+
+	noneGit := New(nil)
+	c, err := noneGit.Retrieve(context.Background(), ParseResource(t, privRepoREADME))
+	require.EqualError(t, err, "git clone: Unable to authenticate, tried: \n    - None: authentication required")
+	require.Equal(t, "", string(c))
+}
+
+func TestGitRetrievePrivateRepoAuthToken(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
+	monkey.Patch(NewSSHAgent, func() (*SSHAgent, error) {
+		return nil, errors.New("Create SSH Agent failed")
+	})
+
+	defer monkey.UnpatchAll()
+
+	tokenGit := New(&AuthOptions{Tokens: map[string]string{"github.com": password}})
+	c, err := tokenGit.Retrieve(context.Background(), ParseResource(t, privRepoREADME))
+	require.NoError(t, err)
+	require.Equal(t, privRepoContent, string(c))
+
+	wrongTokenGit := New(&AuthOptions{Tokens: map[string]string{"github.com": "foobar"}})
+	c, err = wrongTokenGit.Retrieve(context.Background(), ParseResource(t, privRepoREADME))
+	require.EqualError(t, err, "git clone: Unable to authenticate, tried: \n    - None: authentication required,\n    - Username and Password/Token: authentication required")
+	require.Equal(t, "", string(c))
+}
+
+func TestGitRetrievePrivateRepoAuthPassword(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
+	monkey.Patch(NewSSHAgent, func() (*SSHAgent, error) {
+		return nil, errors.New("Create SSH Agent failed")
+	})
+
+	defer monkey.UnpatchAll()
+
+	pwGit := New(&AuthOptions{Credentials: map[string]Credential{"github.com": Credential{username, password}}})
+	c, err := pwGit.Retrieve(context.Background(), ParseResource(t, privRepoREADME))
+	require.NoError(t, err)
+	require.Equal(t, privRepoContent, string(c))
 }
 
 func BenchmarkGitRetrieveHash(b *testing.B) {
