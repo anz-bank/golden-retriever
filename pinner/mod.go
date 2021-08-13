@@ -25,29 +25,18 @@ type Import struct {
 // NewMod initializes and returns a new Mod instance
 func NewMod(modFile string) (*Mod, error) {
 	m := &Mod{modFile: modFile, mutex: sync.RWMutex{}, Imports: make(map[string]*Import)}
-	if _, err := os.Stat(modFile); os.IsNotExist(err) {
-		err = os.MkdirAll(filepath.Dir(modFile), os.ModePerm)
+
+	if _, err := os.Stat(modFile); err == nil {
+		b, err := ioutil.ReadFile(modFile)
 		if err != nil {
 			return nil, err
 		}
-		f, err := os.Create(modFile)
-		if err != nil {
+
+		if err := yaml.Unmarshal(b, m); err != nil {
 			return nil, err
 		}
-		f.Close()
-		return m, nil
-	} else if err != nil {
-		return nil, err
 	}
 
-	b, err := ioutil.ReadFile(modFile)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := yaml.Unmarshal(b, m); err != nil {
-		return nil, err
-	}
 	return m, nil
 }
 
@@ -69,6 +58,27 @@ func (m *Mod) SetImport(repo string, im *Import) {
 
 // Save Mod content to modFile
 func (m *Mod) Save() error {
+	_, err := os.Stat(m.modFile)
+
+	if os.IsNotExist(err) {
+		if len(m.Imports) == 0 {
+			return nil
+		}
+
+		err = os.MkdirAll(filepath.Dir(m.modFile), os.ModePerm)
+		if err != nil {
+			return err
+		}
+		f, err := os.Create(m.modFile)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+
+	} else if err != nil {
+		return err
+	}
+
 	b, err := yaml.Marshal(m)
 	if err != nil {
 		return err

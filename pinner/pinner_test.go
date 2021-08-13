@@ -17,7 +17,7 @@ func TestNew(t *testing.T) {
 	require.Error(t, err)
 
 	_, err = New("", &mock.Retriever{})
-	require.Error(t, err)
+	require.NoError(t, err)
 
 	_, err = New("tmp_modules.yaml", &mock.Retriever{})
 	require.NoError(t, err)

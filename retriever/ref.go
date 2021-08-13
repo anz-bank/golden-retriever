@@ -108,6 +108,9 @@ func (h Hash) IsZero() bool {
 }
 
 func (h Hash) String() string {
+	if h.IsZero() {
+		return ""
+	}
 	return string(h[:])
 }
 
