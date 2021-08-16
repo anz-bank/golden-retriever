@@ -270,13 +270,17 @@ func (a Git) ResolveReference(r *git.Repository, resource *retriever.Resource) (
 		return nil
 	}
 
+	var h *plumbing.Hash
 	rev := resource.Ref.Name()
 	if rev == "HEAD" {
-		rev = "refs/remotes/origin/HEAD"
+		h, err = r.ResolveRevision(plumbing.Revision("refs/remotes/origin/HEAD"))
 	}
-	h, err := r.ResolveRevision(plumbing.Revision(rev))
-	if err != nil {
-		return
+
+	if h == nil {
+		h, err = r.ResolveRevision(plumbing.Revision(rev))
+		if err != nil {
+			return
+		}
 	}
 
 	hash, err := retriever.NewHash(h.String())
