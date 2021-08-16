@@ -276,7 +276,7 @@ func (a Git) ResolveReference(r *git.Repository, resource *retriever.Resource) (
 		h, err = r.ResolveRevision(plumbing.Revision("refs/remotes/origin/HEAD"))
 	}
 
-	if h == nil {
+	if err != nil || rev != "HEAD" {
 		h, err = r.ResolveRevision(plumbing.Revision(rev))
 		if err != nil {
 			return
