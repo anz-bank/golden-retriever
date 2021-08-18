@@ -2,6 +2,8 @@ package remotefs
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/anz-bank/golden-retriever/pinner"
@@ -26,7 +28,13 @@ func New(fs *filesystem.Fs, retriever retriever.Retriever) *RemoteFs {
 
 // NewWithGitRetriever initializes and returns an instance of RemoteFs with retriever git.Git.
 func NewWithGitRetriever(fs *filesystem.Fs, modFile string, options *git.AuthOptions) (*RemoteFs, error) {
-	retr, err := pinner.NewWithGit(modFile, options)
+	userCacheDir, err := os.UserCacheDir()
+	if err != nil {
+		return nil, err
+	}
+	cacheDir := filepath.Join(userCacheDir, "ANZ.GoldenRetriever")
+
+	retr, err := pinner.New(modFile, git.NewWithCache(options, git.NewFscache(cacheDir)))
 	if err != nil {
 		return nil, err
 	}

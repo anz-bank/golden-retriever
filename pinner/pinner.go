@@ -4,11 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/anz-bank/golden-retriever/retriever"
-	"github.com/anz-bank/golden-retriever/retriever/git"
 )
 
 // Pinner is an implementation of Retriever interface with ability to pin git repository version
@@ -32,16 +29,6 @@ func New(modFile string, retriever retriever.Retriever) (*Pinner, error) {
 		mod:       mod,
 		retriever: retriever,
 	}, nil
-}
-
-// NewWithGit initializes and returns an instance of Pinner with retriever git.Git.
-func NewWithGit(modFile string, options *git.AuthOptions) (*Pinner, error) {
-	userCacheDir, err := os.UserCacheDir()
-	if err != nil {
-		return nil, err
-	}
-	cacheDir := filepath.Join(userCacheDir, "ANZ.GoldenRetriever")
-	return New(modFile, git.NewWithCache(options, git.NewFscache(cacheDir)))
 }
 
 // Retrieve returns the bytes of the given resource.
