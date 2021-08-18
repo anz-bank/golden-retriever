@@ -79,6 +79,8 @@ func (m *Mod) Save() error {
 		return err
 	}
 
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
 	b, err := yaml.Marshal(m)
 	if err != nil {
 		return err

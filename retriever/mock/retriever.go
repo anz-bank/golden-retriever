@@ -16,6 +16,7 @@ func (r Retriever) Retrieve(ctx context.Context, resource *retriever.Resource) (
 		resource.Ref = retriever.HEADReference()
 		fallthrough
 	case resource.Ref.Name() == retriever.HEAD:
+		resource.Ref.SetName("master")
 		if err = resource.Ref.SetHash(r.HEADHash()); err != nil {
 			return nil, err
 		}

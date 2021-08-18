@@ -54,3 +54,8 @@ func ParseResource(str string, regexpStr string, repoidx, pathidx, refidx uint) 
 		Ref:      ref,
 	}, nil
 }
+
+// String returns resource representing in string.
+func (r *Resource) String() string {
+	return fmt.Sprintf("%s/%s@%s", r.Repo, r.Filepath, r.Ref.String())
+}

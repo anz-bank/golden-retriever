@@ -19,7 +19,7 @@ const (
 	pubRepoInitSHA     = "1e7c4cecaaa8f76e3c668cebc411f1b03171501f"
 	pubRepoV1SHA       = "f948d44b0d97dbbe019949c8b574b5f246b25dc2"
 	pubRepoV2SHA       = "6a27bac5e5c379649c5b4574845744957cd6c749"
-	pubRepoDevSHA      = "7e4ece290cbbb72a77660f91a2e12e191560f7e6"
+	pubRepoDevSHA      = "865e3e5c6fca0120285c3aa846fdb049f8f074e6"
 	pubRepoInitContent = "# a-public-repo\nA public repo for modules testing\n"
 	pubRepoV1Content   = "# a-public-repo v0.0.1\nA public repo for modules testing\n"
 	pubRepoV2Content   = "# a-public-repo v0.0.2\nA public repo for modules testing\n"
@@ -91,7 +91,7 @@ func TestGitRetrieveClonePublicRepo(t *testing.T) {
 	}
 }
 
-func TestGitRetrieveToFileSystem(t *testing.T) {
+func TestGitRetrieveToFilesystem(t *testing.T) {
 	tmpDir := "tmpdir"
 	repodir := filepath.Join(tmpDir, pubRepo)
 	defer func() {
@@ -101,8 +101,27 @@ func TestGitRetrieveToFileSystem(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	resourcev1 := ParseResource(t, pubRepoREADME+"@v0.0.1")
 	r := NewWithCache(nil, NewFscache(tmpDir))
+
+	resource := ParseResource(t, pubRepoREADME)
+	c, err := r.Retrieve(context.Background(), resource)
+	require.NoError(t, err)
+	require.Equal(t, pubRepoV2Content, string(c))
+}
+
+func TestGitRetrieveTagThenHEAD(t *testing.T) {
+	tmpDir := "tmpdir"
+	repodir := filepath.Join(tmpDir, pubRepo)
+	defer func() {
+		_, err := os.Stat(repodir)
+		require.NoError(t, err)
+		err = os.RemoveAll(tmpDir)
+		require.NoError(t, err)
+	}()
+
+	r := NewWithCache(nil, NewFscache(tmpDir))
+
+	resourcev1 := ParseResource(t, pubRepoREADME+"@v0.0.1")
 	c, err := r.Retrieve(context.Background(), resourcev1)
 	require.NoError(t, err)
 	require.Equal(t, pubRepoV1Content, string(c))

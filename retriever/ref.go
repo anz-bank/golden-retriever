@@ -82,9 +82,22 @@ func (r *Reference) IsHEAD() bool {
 	return r.name == HEAD
 }
 
+// IsEmpty reports whether the reference is empty.
+func (r *Reference) IsEmpty() bool {
+	return r == &Reference{}
+}
+
 // IsHEAD reports whether the reference is a HashReference.
 func (r *Reference) IsHash() bool {
 	return !r.hash.IsZero()
+}
+
+// String returns reference representing in string.
+func (r *Reference) String() string {
+	if r.IsHash() {
+		return r.hash.String()
+	}
+	return r.name
 }
 
 type Hash [40]byte

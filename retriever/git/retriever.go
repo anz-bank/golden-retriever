@@ -86,6 +86,13 @@ func (a Git) Retrieve(ctx context.Context, resource *retriever.Resource) (c []by
 				return nil, fmt.Errorf("git clone: %s", err.Error())
 			}
 		} else {
+			if resource.Ref.IsHash() {
+				c, err = a.Show(r, resource)
+				if err == nil {
+					return c, nil
+				}
+			}
+
 			err = a.Fetch(ctx, r, resource)
 			if err != nil {
 				return nil, fmt.Errorf("git fetch: %s", err.Error())

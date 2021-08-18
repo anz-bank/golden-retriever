@@ -45,6 +45,13 @@ func (a Git) Clone(ctx context.Context, resource *retriever.Resource) (r *git.Re
 
 	tried := []string{}
 
+	err = a.runCloneCmd(ctx, repo, resource.Ref.Name())
+	if err == nil {
+		s := a.cacher.NewStorer(repo)
+		a.cacher.Set(repo, &git.Repository{Storer: s})
+		return &git.Repository{Storer: s}, nil
+	}
+
 	for _, meth := range a.authMethods {
 		auth, url := meth.AuthMethod(repo)
 		options := &git.CloneOptions{
@@ -64,6 +71,7 @@ func (a Git) Clone(ctx context.Context, resource *retriever.Resource) (r *git.Re
 
 		for iter := retriever.NewRefIterator(rules, ref); iter.Next(); {
 			options.ReferenceName = plumbing.ReferenceName(iter.Current())
+
 			mems := memory.NewStorage()
 			r, err = git.CloneContext(ctx, mems, nil, options)
 			if err == nil {
@@ -81,13 +89,6 @@ func (a Git) Clone(ctx context.Context, resource *retriever.Resource) (r *git.Re
 		tried = append(tried, fmt.Sprintf("    - %s: %s", meth.Name(), errmsg))
 	}
 
-	err = a.runCloneCmd(ctx, repo)
-	if err == nil {
-		s := a.cacher.NewStorer(repo)
-		a.cacher.Set(repo, &git.Repository{Storer: s})
-		return &git.Repository{Storer: s}, nil
-	}
-
 	return nil, fmt.Errorf("Unable to authenticate, tried: \n%s", strings.Join(tried, ",\n"))
 }
 
@@ -98,7 +99,7 @@ func (a Git) Fetch(ctx context.Context, r *git.Repository, resource *retriever.R
 	return a.FetchRef(ctx, r, resource.Repo, resource.Ref.Name())
 }
 
-// FetchRef
+// FetchRef fetches specific reference
 func (a Git) FetchRef(ctx context.Context, r *git.Repository, repo string, ref string) (err error) {
 	options := &git.FetchOptions{
 		Depth: 1,
@@ -118,15 +119,16 @@ func (a Git) FetchRef(ctx context.Context, r *git.Repository, repo string, ref s
 			}
 			options.RefSpecs = []config.RefSpec{config.RefSpec(refSpec)}
 
+			e := a.runFetchCmd(ctx, repo, refSpec)
+			if e == nil {
+				return nil
+			}
+
 			err = r.FetchContext(ctx, options)
 			if err == nil || err == git.NoErrAlreadyUpToDate {
 				return nil
 			}
 
-			e := a.runFetchCmd(ctx, repo, refSpec)
-			if e == nil {
-				return nil
-			}
 		}
 
 		errmsg := err.Error()
@@ -208,15 +210,19 @@ func (a Git) FetchCommit(ctx context.Context, r *git.Repository, repo string, ha
 	return fmt.Errorf("Unable to authenticate, tried: \n%s", strings.Join(tried, ",\n"))
 }
 
-func (a Git) runCloneCmd(ctx context.Context, repo string) error {
+func (a Git) runCloneCmd(ctx context.Context, repo string, branch string) error {
 	// Try plain command as long as it works in shell
 	if v, is := a.cacher.(FsCache); is {
 		dir := filepath.Join(v.dir, repo)
-		err := exec.CommandContext(ctx, "git", "clone", "--bare", "--depth=1", HTTPSURL(repo), dir).Run()
+		cmdArgs := []string{"clone", "--bare", "--depth=1", "--no-checkout", "--single-branch"}
+		if branch != "HEAD" {
+			cmdArgs = append(cmdArgs, "--branch", branch)
+		}
+		err := exec.CommandContext(ctx, "git", append(cmdArgs, SSHURL(repo), dir)...).Run()
 		if err == nil {
 			return nil
 		}
-		err = exec.CommandContext(ctx, "git", "clone", "--bare", "--depth=1", SSHURL(repo), dir).Run()
+		err = exec.CommandContext(ctx, "git", append(cmdArgs, HTTPSURL(repo), dir)...).Run()
 		if err == nil {
 			return nil
 		}
@@ -228,7 +234,7 @@ func (a Git) runCloneCmd(ctx context.Context, repo string) error {
 func (a Git) runFetchCmd(ctx context.Context, repo string, refSpec string) error {
 	// Try plain command as long as it works in shell
 	if v, is := a.cacher.(FsCache); is {
-		cmd := exec.CommandContext(ctx, "git", "fetch", "origin", refSpec, "--prune")
+		cmd := exec.CommandContext(ctx, "git", "fetch", "origin", refSpec, "--prune", "--depth=1")
 		cmd.Dir = filepath.Join(v.dir, repo)
 		return cmd.Run()
 	}
@@ -273,6 +279,10 @@ func (a Git) ResolveReference(r *git.Repository, resource *retriever.Resource) (
 	var h *plumbing.Hash
 	rev := resource.Ref.Name()
 	if rev == "HEAD" {
+		ref, e := r.Reference("HEAD", false)
+		if e == nil {
+			resource.Ref.SetName(strings.TrimPrefix(ref.Target().String(), "refs/heads/"))
+		}
 		h, err = r.ResolveRevision(plumbing.Revision("refs/remotes/origin/HEAD"))
 	}
 

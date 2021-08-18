@@ -65,8 +65,10 @@ func TestPinnerRetrieve(t *testing.T) {
 			require.Equal(t, test.content, c)
 			require.Equal(t, test.hash, resource.Ref.Hash())
 
-			err = os.Remove(modFile)
-			require.NoError(t, err)
+			if test.refhash.IsZero() {
+				err = os.Remove(modFile)
+				require.NoError(t, err)
+			}
 		})
 	}
 }
@@ -91,10 +93,9 @@ func TestPinnerRetrieveModFile(t *testing.T) {
 		name    string
 		hash    retriever.Hash
 	}{
-		{"", retriever.ZeroHash, retriever.HEAD, retr.HEADHash()},
-		{retriever.HEAD, retriever.ZeroHash, retriever.HEAD, retr.HEADHash()},
-		{"master", retriever.ZeroHash, "master", retr.BranchHash()},
-		{"v1", retriever.ZeroHash, "v1", retr.TagHash()},
+		{"", retriever.ZeroHash, "master", retr.HEADHash()},
+		{retriever.HEAD, retriever.ZeroHash, "master", retr.HEADHash()},
+		{"master", retriever.ZeroHash, "master", retr.HEADHash()},
 		{"", h, "", h},
 	}
 
@@ -106,10 +107,23 @@ func TestPinnerRetrieveModFile(t *testing.T) {
 	_, err = pinner.Retrieve(context.Background(), resource)
 	require.NoError(t, err)
 	require.Equal(t, retr.HEADHash(), resource.Ref.Hash())
-	require.Equal(t, retriever.HEAD, resource.Ref.Name())
+	require.Equal(t, "master", resource.Ref.Name())
 	b, err := ioutil.ReadFile(modFile)
 	require.NoError(t, err)
-	require.Equal(t, fmt.Sprintf("imports:\n    github.com/foo/bar:\n        pinned: %s\n", retr.HEADHash()), string(b))
+	require.Equal(t, fmt.Sprintf("imports:\n    github.com/foo/bar:\n        ref: %s\n        pinned: %s\n", "master", retr.HEADHash()), string(b))
+
+	ref, err := retriever.NewReference("v1", retriever.ZeroHash)
+	require.NoError(t, err)
+	resource = &retriever.Resource{
+		Repo:     "github.com/foo/bar",
+		Filepath: "baz.md",
+		Ref:      ref,
+	}
+	_, err = pinner.Retrieve(context.Background(), resource)
+	require.EqualError(t, err, "cannot import multiple versions (v1, master) of a single repo github.com/foo/bar")
+	b, err = ioutil.ReadFile(modFile)
+	require.NoError(t, err)
+	require.Equal(t, fmt.Sprintf("imports:\n    github.com/foo/bar:\n        ref: %s\n        pinned: %s\n", "master", retr.HEADHash()), string(b))
 
 	for _, test := range tests {
 		s := test.refhash.String()
@@ -117,10 +131,10 @@ func TestPinnerRetrieveModFile(t *testing.T) {
 			s = "nohash"
 		}
 		t.Run(test.refname+s, func(t *testing.T) {
-			ref, err := retriever.NewReference(test.refname, test.refhash)
+			ref, err = retriever.NewReference(test.refname, test.refhash)
 			require.NoError(t, err)
 
-			resource := &retriever.Resource{
+			resource = &retriever.Resource{
 				Repo:     "github.com/foo/bar",
 				Filepath: "baz.md",
 				Ref:      ref,
@@ -130,13 +144,9 @@ func TestPinnerRetrieveModFile(t *testing.T) {
 			require.Equal(t, test.name, resource.Ref.Name())
 			require.Equal(t, test.hash, resource.Ref.Hash())
 
-			b, err := ioutil.ReadFile(modFile)
+			b, err = ioutil.ReadFile(modFile)
 			require.NoError(t, err)
-			if test.name == "" || test.name == retriever.HEAD {
-				require.Equal(t, fmt.Sprintf("imports:\n    github.com/foo/bar:\n        pinned: %s\n", test.hash), string(b))
-			} else {
-				require.Equal(t, fmt.Sprintf("imports:\n    github.com/foo/bar:\n        ref: %s\n        pinned: %s\n", test.name, test.hash), string(b))
-			}
+			require.Equal(t, fmt.Sprintf("imports:\n    github.com/foo/bar:\n        ref: %s\n        pinned: %s\n", "master", retr.HEADHash()), string(b))
 		})
 	}
 }
