@@ -76,8 +76,10 @@ func (a Git) Clone(ctx context.Context, resource *retriever.Resource) (r *git.Re
 			r, err = git.CloneContext(ctx, mems, nil, options)
 			if err == nil {
 				r, err = git.CloneContext(ctx, a.cacher.NewStorer(repo), nil, options)
+				if err != nil {
+					return nil, err
+				}
 				a.cacher.Set(repo, r)
-				resource.Ref.SetName(iter.Current())
 				return
 			}
 		}

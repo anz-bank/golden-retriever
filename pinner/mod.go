@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 )
 
@@ -75,6 +76,7 @@ func (m *Mod) Save() error {
 		}
 		defer f.Close()
 
+		log.Debugf("%s created. Pinned versions are saved to this file.\n", m.modFile)
 	} else if err != nil {
 		return err
 	}
