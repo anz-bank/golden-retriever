@@ -224,13 +224,10 @@ func (a Git) runCloneCmd(ctx context.Context, repo string, branch string) error 
 		if err == nil {
 			return nil
 		}
-		err = exec.CommandContext(ctx, "git", append(cmdArgs, HTTPSURL(repo), dir)...).Run()
-		if err == nil {
-			return nil
-		}
+		return exec.CommandContext(ctx, "git", append(cmdArgs, HTTPSURL(repo), dir)...).Run()
 	}
 
-	return errors.New("Run plain command doesn't support for memory storage")
+	return errors.New("Run plain git clone command doesn't support for memory storage")
 }
 
 func (a Git) runFetchCmd(ctx context.Context, repo string, refSpec string) error {
@@ -240,7 +237,8 @@ func (a Git) runFetchCmd(ctx context.Context, repo string, refSpec string) error
 		cmd.Dir = filepath.Join(v.dir, repo)
 		return cmd.Run()
 	}
-	return errors.New("Run plain command doesn't support for memory storage")
+
+	return errors.New("Run plain git fetch command doesn't support for memory storage")
 }
 
 // Show the content of a file with given file path and git reference in the cache directory.
@@ -254,6 +252,9 @@ func (a Git) Show(r *git.Repository, resource *retriever.Resource) ([]byte, erro
 
 	commit, err := r.CommitObject(plumbing.NewHash(resource.Ref.Hash().String()))
 	if err != nil {
+		if err == plumbing.ErrObjectNotFound {
+			return nil, fmt.Errorf("object of commit %s not found", resource.Ref.Hash())
+		}
 		return nil, err
 	}
 
@@ -291,6 +292,9 @@ func (a Git) ResolveReference(r *git.Repository, resource *retriever.Resource) (
 	if err != nil || rev != "HEAD" {
 		h, err = r.ResolveRevision(plumbing.Revision(rev))
 		if err != nil {
+			if err == plumbing.ErrReferenceNotFound {
+				return fmt.Errorf("reference %s not found", rev)
+			}
 			return
 		}
 	}
