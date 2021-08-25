@@ -29,17 +29,18 @@ func (a Git) Clone(ctx context.Context, resource *retriever.Resource) (r *git.Re
 
 	if resource.Ref.IsHash() {
 		s := a.cacher.NewStorer(repo)
-
 		r, err = git.Init(s, nil)
-		a.cacher.Set(repo, &git.Repository{Storer: s})
 		if err != nil {
 			return
 		}
+		a.cacher.Set(repo, &git.Repository{Storer: s})
 
 		err = a.FetchCommit(ctx, r, repo, resource.Ref.Hash())
 		if err != nil {
 			return nil, err
 		}
+
+		r, _ = a.cacher.Get(repo)
 		return r, nil
 	}
 
@@ -49,7 +50,8 @@ func (a Git) Clone(ctx context.Context, resource *retriever.Resource) (r *git.Re
 	if err == nil {
 		s := a.cacher.NewStorer(repo)
 		a.cacher.Set(repo, &git.Repository{Storer: s})
-		return &git.Repository{Storer: s}, nil
+		r, _ = a.cacher.Get(repo)
+		return r, nil
 	}
 
 	for _, meth := range a.authMethods {
@@ -80,6 +82,7 @@ func (a Git) Clone(ctx context.Context, resource *retriever.Resource) (r *git.Re
 					return nil, err
 				}
 				a.cacher.Set(repo, r)
+				r, _ = a.cacher.Get(repo)
 				return
 			}
 		}
@@ -158,7 +161,7 @@ func (a Git) FetchCommit(ctx context.Context, r *git.Repository, repo string, ha
 		isEmpty = true
 	}
 
-	refSpec := fmt.Sprintf("+%s:%s", hash, hash)
+	refSpec := fmt.Sprintf("%s:refs/heads/master", hash.String())
 	options := &git.FetchOptions{
 		Depth:    1,
 		RefSpecs: []config.RefSpec{config.RefSpec(refSpec)},
@@ -203,7 +206,7 @@ func (a Git) FetchCommit(ctx context.Context, r *git.Repository, repo string, ha
 
 		tried = append(tried, fmt.Sprintf("    - %s: %s", meth.Name(), err.Error()))
 
-		err = a.runFetchCmd(ctx, repo, refSpec)
+		err = a.runFetchCmd(ctx, repo, hash.String())
 		if err == nil {
 			return nil
 		}
@@ -233,7 +236,7 @@ func (a Git) runCloneCmd(ctx context.Context, repo string, branch string) error 
 func (a Git) runFetchCmd(ctx context.Context, repo string, refSpec string) error {
 	// Try plain command as long as it works in shell
 	if v, is := a.cacher.(FsCache); is {
-		cmd := exec.CommandContext(ctx, "git", "fetch", "origin", refSpec, "--prune", "--depth=1")
+		cmd := exec.CommandContext(ctx, "git", "fetch", "origin", refSpec, "--depth=1")
 		cmd.Dir = filepath.Join(v.dir, repo)
 		return cmd.Run()
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/anz-bank/golden-retriever/reader/filesystem"
 	"github.com/anz-bank/golden-retriever/retriever"
 	"github.com/anz-bank/golden-retriever/retriever/git"
+	log "github.com/sirupsen/logrus"
 )
 
 // RemoteFs
@@ -38,6 +39,8 @@ func NewWithGitRetriever(fs *filesystem.Fs, modFile string, options *git.AuthOpt
 	if err != nil {
 		return nil, err
 	}
+	log.Debugf("cached git repositories folder: %s", cacheDir)
+
 	return New(fs, retr), nil
 }
 
