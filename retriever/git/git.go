@@ -161,7 +161,7 @@ func (a Git) FetchCommit(ctx context.Context, r *git.Repository, repo string, ha
 		isEmpty = true
 	}
 
-	refSpec := fmt.Sprintf("%s:refs/heads/master", hash.String())
+	refSpec := fmt.Sprintf("%s:%[1]s", hash)
 	options := &git.FetchOptions{
 		Depth:    1,
 		RefSpecs: []config.RefSpec{config.RefSpec(refSpec)},
@@ -176,7 +176,7 @@ func (a Git) FetchCommit(ctx context.Context, r *git.Repository, repo string, ha
 			switch {
 			case i > 0:
 				remote, err := r.Remote(git.DefaultRemoteName)
-				if err != nil || err != git.ErrRemoteNotFound {
+				if err != nil && err != git.ErrRemoteNotFound {
 					return err
 				}
 
