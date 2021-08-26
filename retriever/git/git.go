@@ -78,7 +78,7 @@ func (a Git) Clone(ctx context.Context, resource *retriever.Resource) (r *git.Re
 			r, err = git.CloneContext(ctx, mems, nil, options)
 			if err == nil {
 				r, err = git.CloneContext(ctx, a.cacher.NewStorer(repo), nil, options)
-				if err != nil {
+				if err != nil && err != git.ErrRepositoryAlreadyExists {
 					return nil, err
 				}
 				a.cacher.Set(repo, r)
@@ -193,7 +193,7 @@ func (a Git) FetchCommit(ctx context.Context, r *git.Repository, repo string, ha
 				if _, err = r.CreateRemote(&config.RemoteConfig{
 					Name: git.DefaultRemoteName,
 					URLs: []string{url},
-				}); err != nil {
+				}); err != nil && err != git.ErrRemoteExists {
 					return err
 				}
 			}

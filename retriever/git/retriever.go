@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/anz-bank/golden-retriever/once"
 	"github.com/anz-bank/golden-retriever/retriever"
 
 	log "github.com/sirupsen/logrus"
@@ -13,6 +14,7 @@ import (
 type Git struct {
 	authMethods []Authenticator
 	cacher      Cacher
+	once        once.Once
 }
 
 // New returns new Git with given authencitation parameters. Cache repositories in memory by default.
@@ -59,6 +61,7 @@ func NewWithCache(options *AuthOptions, cacher Cacher) *Git {
 	return &Git{
 		authMethods: methods,
 		cacher:      cacher,
+		once:        once.NewOnce(),
 	}
 }
 
@@ -79,6 +82,12 @@ func (a Git) Retrieve(ctx context.Context, resource *retriever.Resource) (c []by
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	default:
+		ch := a.once.Register(resource.Repo)
+		defer a.once.Unregister(resource.Repo)
+		if ch != nil {
+			<-ch
+		}
+
 		r, ok := a.cacher.Get(resource.Repo)
 		if !ok {
 			r, err = a.Clone(ctx, resource)

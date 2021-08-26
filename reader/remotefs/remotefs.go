@@ -27,13 +27,27 @@ func New(fs *filesystem.Fs, retriever retriever.Retriever) *RemoteFs {
 	}
 }
 
+const cacheDir = "ANZ.GoldenRetriever"
+
 // NewWithGitRetriever initializes and returns an instance of RemoteFs with retriever git.Git.
-func NewWithGitRetriever(fs *filesystem.Fs, modFile string, options *git.AuthOptions) (*RemoteFs, error) {
+func NewWithGitRetriever(fs *filesystem.Fs, options *git.AuthOptions) (*RemoteFs, error) {
 	userCacheDir, err := os.UserCacheDir()
 	if err != nil {
 		return nil, err
 	}
-	cacheDir := filepath.Join(userCacheDir, "ANZ.GoldenRetriever")
+	cacheDir := filepath.Join(userCacheDir, cacheDir)
+	log.Debugf("cached git repositories folder: %s", cacheDir)
+
+	return New(fs, git.NewWithCache(options, git.NewFscache(cacheDir))), nil
+}
+
+// NewWithPinnerGitRetriever initializes and returns an instance of RemoteFs with retriever pinner.Pinner.
+func NewWithPinnerGitRetriever(fs *filesystem.Fs, modFile string, options *git.AuthOptions) (*RemoteFs, error) {
+	userCacheDir, err := os.UserCacheDir()
+	if err != nil {
+		return nil, err
+	}
+	cacheDir := filepath.Join(userCacheDir, cacheDir)
 
 	retr, err := pinner.New(modFile, git.NewWithCache(options, git.NewFscache(cacheDir)))
 	if err != nil {
