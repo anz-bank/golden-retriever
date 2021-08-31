@@ -9,8 +9,8 @@ import (
 
 	"github.com/anz-bank/golden-retriever/retriever"
 
-	"bou.ke/monkey"
 	"github.com/stretchr/testify/require"
+	"github.com/undefinedlabs/go-mpatch"
 )
 
 const (
@@ -38,10 +38,11 @@ var (
 )
 
 func TestGitRetrieveCloneWrongResource(t *testing.T) {
-	monkey.Patch(NewSSHAgent, func() (*SSHAgent, error) {
+	patch, _ := mpatch.PatchMethod(NewSSHAgent, func() (*SSHAgent, error) {
 		return nil, errors.New("Create SSH Agent failed")
 	})
-	defer monkey.UnpatchAll()
+
+	defer patch.Unpatch()
 
 	tests := []struct {
 		resourceStr string
@@ -65,10 +66,10 @@ func TestGitRetrieveCloneWrongResource(t *testing.T) {
 }
 
 func TestGitRetrieveClonePublicRepo(t *testing.T) {
-	monkey.Patch(NewSSHAgent, func() (*SSHAgent, error) {
+	patch, _ := mpatch.PatchMethod(NewSSHAgent, func() (*SSHAgent, error) {
 		return nil, errors.New("Create SSH Agent failed")
 	})
-	defer monkey.UnpatchAll()
+	defer patch.Unpatch()
 
 	tests := []struct {
 		resourceStr string
@@ -167,11 +168,11 @@ func TestGitRetrievePrivateRepoAuthNone(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	monkey.Patch(NewSSHAgent, func() (*SSHAgent, error) {
+	patch, _ := mpatch.PatchMethod(NewSSHAgent, func() (*SSHAgent, error) {
 		return nil, errors.New("Create SSH Agent failed")
 	})
 
-	defer monkey.UnpatchAll()
+	defer patch.Unpatch()
 
 	noneGit := New(nil)
 	c, err := noneGit.Retrieve(context.Background(), ParseResource(t, privRepoREADME))
@@ -184,11 +185,11 @@ func TestGitRetrievePrivateRepoAuthToken(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	monkey.Patch(NewSSHAgent, func() (*SSHAgent, error) {
+	patch, _ := mpatch.PatchMethod(NewSSHAgent, func() (*SSHAgent, error) {
 		return nil, errors.New("Create SSH Agent failed")
 	})
 
-	defer monkey.UnpatchAll()
+	defer patch.Unpatch()
 
 	tokenGit := New(&AuthOptions{Tokens: map[string]string{"github.com": password}})
 	c, err := tokenGit.Retrieve(context.Background(), ParseResource(t, privRepoREADME))
@@ -206,11 +207,11 @@ func TestGitRetrievePrivateRepoAuthPassword(t *testing.T) {
 		t.Skip("skipping test in short mode.")
 	}
 
-	monkey.Patch(NewSSHAgent, func() (*SSHAgent, error) {
+	patch, _ := mpatch.PatchMethod(NewSSHAgent, func() (*SSHAgent, error) {
 		return nil, errors.New("Create SSH Agent failed")
 	})
 
-	defer monkey.UnpatchAll()
+	defer patch.Unpatch()
 
 	pwGit := New(&AuthOptions{Credentials: map[string]Credential{"github.com": Credential{username, password}}})
 	c, err := pwGit.Retrieve(context.Background(), ParseResource(t, privRepoREADME))
