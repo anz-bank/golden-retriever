@@ -126,7 +126,7 @@ func TestGitRetrieveTagThenHEAD(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, pubRepoV1Content, string(c))
 
-	resource := ParseResource(t, pubRepoREADME)
+	resource := ParseResource(t, pubRepoREADME+"@main")
 	c, err = r.Retrieve(context.Background(), resource)
 	require.NoError(t, err)
 	require.Equal(t, pubRepoV2Content, string(c))
@@ -148,7 +148,6 @@ func TestGitRetrieveCloneThenFetchRepo(t *testing.T) {
 	}{
 		{pubRepoREADME + "@" + pubRepoInitSHA, pubRepoInitContent},
 		{pubRepoREADME + "@v0.0.1", pubRepoV1Content},
-		{pubRepoREADME, pubRepoV2Content},
 		{pubRepoREADME + "@main", pubRepoV2Content},
 		{pubRepoREADME + "@develop", pubRepoDevContent},
 	}
