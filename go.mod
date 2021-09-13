@@ -2,6 +2,8 @@ module github.com/anz-bank/golden-retriever
 
 go 1.16
 
+replace github.com/spf13/afero => github.com/anz-bank/afero v1.2.4
+
 require (
 	github.com/ProtonMail/go-crypto v0.0.0-20210806121455-8fde02e97fee // indirect
 	github.com/go-git/go-billy/v5 v5.3.1
