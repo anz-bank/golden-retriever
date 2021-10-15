@@ -102,7 +102,7 @@ func TestGitRetrieveToFilesystem(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	r := NewWithCache(nil, NewFscache(tmpDir))
+	r := NewWithCache(nil, NewPlainFscache(tmpDir))
 
 	resource := ParseResource(t, pubRepoREADME)
 	c, err := r.Retrieve(context.Background(), resource)
@@ -110,7 +110,7 @@ func TestGitRetrieveToFilesystem(t *testing.T) {
 	require.Equal(t, pubRepoV2Content, string(c))
 }
 
-func TestGitRetrieveTagThenHEAD(t *testing.T) {
+func TestGitRetrieveHEADThenTag(t *testing.T) {
 	tmpDir := "tmpdir"
 	repodir := filepath.Join(tmpDir, pubRepo)
 	defer func() {
@@ -120,17 +120,17 @@ func TestGitRetrieveTagThenHEAD(t *testing.T) {
 		require.NoError(t, err)
 	}()
 
-	r := NewWithCache(nil, NewFscache(tmpDir))
-
-	resourcev1 := ParseResource(t, pubRepoREADME+"@v0.0.1")
-	c, err := r.Retrieve(context.Background(), resourcev1)
-	require.NoError(t, err)
-	require.Equal(t, pubRepoV1Content, string(c))
+	r := NewWithCache(nil, NewPlainFscache(tmpDir))
 
 	resource := ParseResource(t, pubRepoREADME+"@main")
-	c, err = r.Retrieve(context.Background(), resource)
+	c, err := r.Retrieve(context.Background(), resource)
 	require.NoError(t, err)
 	require.Equal(t, pubRepoV2Content, string(c))
+
+	resourcev1 := ParseResource(t, pubRepoREADME+"@v0.0.1")
+	c, err = r.Retrieve(context.Background(), resourcev1)
+	require.NoError(t, err)
+	require.Equal(t, pubRepoV1Content, string(c))
 }
 
 func TestGitRetrieveCloneThenFetchRepo(t *testing.T) {
@@ -153,7 +153,7 @@ func TestGitRetrieveCloneThenFetchRepo(t *testing.T) {
 		{pubRepoREADME + "@develop", pubRepoDevContent},
 	}
 
-	r := NewWithCache(nil, NewFscache(tmpDir))
+	r := NewWithCache(nil, NewPlainFscache(tmpDir))
 	for _, tr := range tests {
 		t.Run(tr.resourceStr, func(t *testing.T) {
 			content, err := r.Retrieve(context.Background(), ParseResource(t, tr.resourceStr))

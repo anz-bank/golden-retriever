@@ -2,8 +2,10 @@ package remotefs
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/anz-bank/golden-retriever/pinner"
@@ -27,33 +29,29 @@ func New(fs *filesystem.Fs, retriever retriever.Retriever) *RemoteFs {
 	}
 }
 
-const cacheDir = "ANZ.GoldenRetriever"
+var CacheDir string
+
+func init() {
+	userCacheDir, err := os.UserCacheDir()
+	if err != nil {
+		panic(err)
+	}
+	CacheDir = filepath.Join(userCacheDir, "anz-bank.golden-retriever")
+}
 
 // NewWithGitRetriever initializes and returns an instance of RemoteFs with retriever git.Git.
 func NewWithGitRetriever(fs *filesystem.Fs, options *git.AuthOptions) (*RemoteFs, error) {
-	userCacheDir, err := os.UserCacheDir()
-	if err != nil {
-		return nil, err
-	}
-	cacheDir := filepath.Join(userCacheDir, cacheDir)
-	log.Debugf("cached git repositories folder: %s", cacheDir)
-
-	return New(fs, git.NewWithCache(options, git.NewFscache(cacheDir))), nil
+	log.Debugf("cached git repositories folder: %s", CacheDir)
+	return New(fs, git.NewWithCache(options, git.NewPlainFscache(CacheDir))), nil
 }
 
 // NewWithPinnerGitRetriever initializes and returns an instance of RemoteFs with retriever pinner.Pinner.
 func NewWithPinnerGitRetriever(fs *filesystem.Fs, modFile string, options *git.AuthOptions) (*RemoteFs, error) {
-	userCacheDir, err := os.UserCacheDir()
+	retr, err := pinner.New(modFile, git.NewWithCache(options, git.NewPlainFscache(CacheDir)))
 	if err != nil {
 		return nil, err
 	}
-	cacheDir := filepath.Join(userCacheDir, cacheDir)
-
-	retr, err := pinner.New(modFile, git.NewWithCache(options, git.NewFscache(cacheDir)))
-	if err != nil {
-		return nil, err
-	}
-	log.Debugf("cached git repositories folder: %s", cacheDir)
+	log.Debugf("cached git repositories folder: %s", CacheDir)
 
 	return New(fs, retr), nil
 }
@@ -83,20 +81,26 @@ func (r RemoteFs) ReadHash(ctx context.Context, path string) ([]byte, retriever.
 
 const remoteImportPrefix = "//"
 
-// IsRemoteImport reports whether the path is a remote file.
-func IsRemoteImport(path string) bool {
-	return strings.HasPrefix(path, remoteImportPrefix)
-}
-
 // IsRemote reports whether the path is a remote file.
+// e.g. valid remote file paths:
+// - github.com/foo/bar/path/to/file@v0.0.1
+// - //github.com/foo/bar/path/to/file@v0.0.1
 func (RemoteFs) IsRemote(path string) bool {
-	return IsRemoteImport(path)
+	if strings.HasPrefix(path, remoteImportPrefix) {
+		return true
+	}
+
+	re, err := regexp.Compile(resourceRegexp)
+	if err != nil {
+		panic(fmt.Sprintf("compile regular expression %s error: %s", resourceRegexp, err))
+	}
+	return re.MatchString(path)
 }
 
-// ResourceRegexp is the regular expression of remote file path string. e.g. //github.com/foo/bar/path/to/file@v0.0.1
-var ResourceRegexp = `^//([\w.]+(/[\w-]+){2})((/[\w.-]+)+)(@([\w.-]+))?$`
+// resourceRegexp is the regular expression of remote file path string. e.g. github.com/foo/bar/path/to/file@v0.0.1
+var resourceRegexp = `^((\w+\.)+(\w)+(/[\w-]+){2})((/[\w.-]+)+)(@([\w.-]+))?$`
 
 // ParseResource takes a string in certain format and returns the corresponding resource.
 func (RemoteFs) ParseResource(str string) (*retriever.Resource, error) {
-	return retriever.ParseResource(str, ResourceRegexp, 1, 3, 6)
+	return retriever.ParseResource(strings.TrimPrefix(str, remoteImportPrefix), resourceRegexp, 1, 5, 8)
 }

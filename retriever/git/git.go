@@ -2,18 +2,17 @@ package git
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"os/exec"
-	"path/filepath"
+	"os"
 	"strings"
 
 	"github.com/anz-bank/golden-retriever/retriever"
 
+	"github.com/go-git/go-billy/v5/memfs"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/storage/memory"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -21,47 +20,39 @@ func init() {
 	log.SetLevel(log.WarnLevel)
 }
 
+func isReferenceNotFoundErr(err error) bool {
+	return nomatchspecErr.Is(err) || plumbing.ErrReferenceNotFound == err
+}
+
 var nomatchspecErr = git.NoMatchingRefSpecError{}
 
 // Clone a repository into the given cache directory.
 func (a Git) Clone(ctx context.Context, resource *retriever.Resource) (r *git.Repository, err error) {
 	repo := resource.Repo
+	c, isPlain := a.cacher.(PlainFsCache)
 
 	if resource.Ref.IsHash() {
-		s := a.cacher.NewStorer(repo)
-		r, err = git.Init(s, nil)
-		if err != nil {
-			return
+		if isPlain {
+			r, err = git.PlainInit(c.RepoDir(repo), false)
+		} else {
+			r, err = git.Init(a.cacher.NewStorer(repo), nil)
 		}
-		a.cacher.Set(repo, &git.Repository{Storer: s})
-
-		err = a.FetchCommit(ctx, r, repo, resource.Ref.Hash())
 		if err != nil {
 			return nil, err
 		}
 
-		r, _ = a.cacher.Get(repo)
-		return r, nil
+		err = a.FetchCommit(ctx, r, repo, resource.Ref.Hash())
+		return
 	}
 
 	tried := []string{}
 
-	err = a.runCloneCmd(ctx, repo, resource.Ref.Name())
-	if err == nil {
-		s := a.cacher.NewStorer(repo)
-		a.cacher.Set(repo, &git.Repository{Storer: s})
-		r, _ = a.cacher.Get(repo)
-		return r, nil
-	}
-
 	for _, meth := range a.authMethods {
 		auth, url := meth.AuthMethod(repo)
 		options := &git.CloneOptions{
-			URL:          url,
-			Depth:        1,
-			NoCheckout:   true,
-			Auth:         auth,
-			SingleBranch: true,
+			URL:   url,
+			Depth: 1,
+			Auth:  auth,
 		}
 
 		ref := resource.Ref.Name()
@@ -74,22 +65,22 @@ func (a Git) Clone(ctx context.Context, resource *retriever.Resource) (r *git.Re
 		for iter := retriever.NewRefIterator(rules, ref); iter.Next(); {
 			options.ReferenceName = plumbing.ReferenceName(iter.Current())
 
-			mems := memory.NewStorage()
-			r, err = git.CloneContext(ctx, mems, nil, options)
+			if isPlain {
+				r, err = git.PlainCloneContext(ctx, c.RepoDir(repo), false, options)
+			} else {
+				r, err = git.CloneContext(ctx, a.cacher.NewStorer(repo), memfs.New(), options)
+			}
 			if err == nil {
-				r, err = git.CloneContext(ctx, a.cacher.NewStorer(repo), nil, options)
-				if err != nil && err != git.ErrRepositoryAlreadyExists {
-					return nil, err
-				}
-				a.cacher.Set(repo, r)
-				r, _ = a.cacher.Get(repo)
-				return
+				return r, nil
 			}
 		}
 
 		errmsg := err.Error()
-		if nomatchspecErr.Is(err) {
+		if isReferenceNotFoundErr(err) {
 			errmsg = fmt.Sprintf("reference %s not found", ref)
+		}
+		if transport.ErrRepositoryNotFound == err {
+			errmsg = fmt.Sprintf("repository %s not found", repo)
 		}
 		tried = append(tried, fmt.Sprintf("    - %s: %s", meth.Name(), errmsg))
 	}
@@ -107,7 +98,8 @@ func (a Git) Fetch(ctx context.Context, r *git.Repository, resource *retriever.R
 // FetchRef fetches specific reference
 func (a Git) FetchRef(ctx context.Context, r *git.Repository, repo string, ref string) (err error) {
 	options := &git.FetchOptions{
-		Depth: 1,
+		Depth:    1,
+		Progress: os.Stdout,
 	}
 
 	tried := []string{}
@@ -118,22 +110,16 @@ func (a Git) FetchRef(ctx context.Context, r *git.Repository, repo string, ref s
 		for iter := retriever.NewRefIterator(retriever.RefRules, ref); iter.Next(); {
 			refSpec := iter.Current()
 			if refSpec == "HEAD" {
-				refSpec = "+HEAD:refs/remotes/origin/HEAD"
+				refSpec = fmt.Sprintf("+%s:refs/remotes/origin/%[1]s", "HEAD")
 			} else {
-				refSpec = "+" + refSpec + ":" + refSpec
+				refSpec = fmt.Sprintf("+%s:%[1]s", refSpec)
 			}
 			options.RefSpecs = []config.RefSpec{config.RefSpec(refSpec)}
-
-			e := a.runFetchCmd(ctx, repo, refSpec)
-			if e == nil {
-				return nil
-			}
 
 			err = r.FetchContext(ctx, options)
 			if err == nil || err == git.NoErrAlreadyUpToDate {
 				return nil
 			}
-
 		}
 
 		errmsg := err.Error()
@@ -205,43 +191,9 @@ func (a Git) FetchCommit(ctx context.Context, r *git.Repository, repo string, ha
 		}
 
 		tried = append(tried, fmt.Sprintf("    - %s: %s", meth.Name(), err.Error()))
-
-		err = a.runFetchCmd(ctx, repo, hash.String())
-		if err == nil {
-			return nil
-		}
 	}
 
 	return fmt.Errorf("Unable to authenticate, tried: \n%s", strings.Join(tried, ",\n"))
-}
-
-func (a Git) runCloneCmd(ctx context.Context, repo string, branch string) error {
-	// Try plain command as long as it works in shell
-	if v, is := a.cacher.(FsCache); is {
-		dir := filepath.Join(v.dir, repo)
-		cmdArgs := []string{"clone", "--bare", "--depth=1", "--no-checkout", "--single-branch"}
-		if branch != "HEAD" {
-			cmdArgs = append(cmdArgs, "--branch", branch)
-		}
-		err := exec.CommandContext(ctx, "git", append(cmdArgs, SSHURL(repo), dir)...).Run()
-		if err == nil {
-			return nil
-		}
-		return exec.CommandContext(ctx, "git", append(cmdArgs, HTTPSURL(repo), dir)...).Run()
-	}
-
-	return errors.New("Run plain git clone command doesn't support for memory storage")
-}
-
-func (a Git) runFetchCmd(ctx context.Context, repo string, refSpec string) error {
-	// Try plain command as long as it works in shell
-	if v, is := a.cacher.(FsCache); is {
-		cmd := exec.CommandContext(ctx, "git", "fetch", "origin", refSpec, "--depth=1")
-		cmd.Dir = filepath.Join(v.dir, repo)
-		return cmd.Run()
-	}
-
-	return errors.New("Run plain git fetch command doesn't support for memory storage")
 }
 
 // Show the content of a file with given file path and git reference in the cache directory.

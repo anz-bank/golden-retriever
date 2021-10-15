@@ -86,3 +86,37 @@ func (s FsCache) NewStorer(repo string) storage.Storer {
 func (s FsCache) repoDir(repo string) string {
 	return filepath.Join(s.dir, repo)
 }
+
+// PlainFsCache implements the Cacher interface storing repositories in filesystem
+// without extra storage.Storer files.
+type PlainFsCache struct {
+	dir string
+}
+
+// NewPlainFscache returns a new PlainFsCache.
+func NewPlainFscache(dir string) PlainFsCache {
+	return PlainFsCache{dir: dir}
+}
+
+func (s PlainFsCache) Get(repo string) (*git.Repository, bool) {
+	r, err := git.PlainOpen(s.RepoDir(repo))
+	if err != nil {
+		return nil, false
+	}
+
+	return r, true
+}
+
+func (s PlainFsCache) Set(repo string, v *git.Repository) {
+	if _, is := v.Storer.(*filesystem.Storage); !is {
+		panic("it is not a filesystem storage")
+	}
+}
+
+func (s PlainFsCache) NewStorer(repo string) storage.Storer {
+	panic("storage.Storer not supported by PlainFsCache")
+}
+
+func (s PlainFsCache) RepoDir(repo string) string {
+	return filepath.Join(s.dir, repo)
+}
