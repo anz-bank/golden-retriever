@@ -49,10 +49,14 @@ func (m *Mod) GetImport(repo string) (*Import, bool) {
 	return im, ok
 }
 
-// GetImport sets value Import with given repository key
+// SetImport sets value Import with given repository key
 func (m *Mod) SetImport(repo string, im *Import) {
 	m.mutex.Lock()
-	m.Imports[repo] = im
+	if im == nil {
+		delete(m.Imports, repo)
+	} else {
+		m.Imports[repo] = im
+	}
 	m.mutex.Unlock()
 	return
 }

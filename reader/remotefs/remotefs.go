@@ -45,15 +45,15 @@ func NewWithGitRetriever(fs *filesystem.Fs, options *git.AuthOptions) (*RemoteFs
 	return New(fs, git.NewWithCache(options, git.NewPlainFscache(CacheDir))), nil
 }
 
-// NewWithPinnerGitRetriever initializes and returns an instance of RemoteFs with retriever pinner.Pinner.
-func NewWithPinnerGitRetriever(fs *filesystem.Fs, modFile string, options *git.AuthOptions) (*RemoteFs, error) {
-	retr, err := pinner.New(modFile, git.NewWithCache(options, git.NewPlainFscache(CacheDir)))
-	if err != nil {
-		return nil, err
-	}
+// NewPinnerGitRetriever initializes and returns an instance of pinner.Pinner.
+func NewPinnerGitRetriever(modFile string, options *git.AuthOptions) (retriever.Retriever, error) {
 	log.Debugf("cached git repositories folder: %s", CacheDir)
+	return pinner.New(modFile, git.NewWithCache(options, git.NewPlainFscache(CacheDir)))
+}
 
-	return New(fs, retr), nil
+// NewWithRetriever initializes and returns an instance of RemoteFs with a retriever.
+func NewWithRetriever(fs *filesystem.Fs, retr retriever.Retriever) *RemoteFs {
+	return New(fs, retr)
 }
 
 // Read returns the content of the file (either local or remote).

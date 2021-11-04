@@ -71,3 +71,10 @@ func (m *Pinner) Retrieve(ctx context.Context, resource *retriever.Resource) (co
 
 	return
 }
+
+func (m *Pinner) Unpin(repos []string) error {
+	for _, repo := range repos {
+		m.mod.SetImport(repo, nil)
+	}
+	return m.mod.Save()
+}
