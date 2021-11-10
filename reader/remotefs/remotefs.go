@@ -3,6 +3,7 @@ package remotefs
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -19,6 +20,7 @@ import (
 type RemoteFs struct {
 	fs        *filesystem.Fs
 	retriever retriever.Retriever
+	vendorDir string
 }
 
 // New initializes and returns an instance of RemoteFs.
@@ -57,26 +59,54 @@ func NewWithRetriever(fs *filesystem.Fs, retr retriever.Retriever) *RemoteFs {
 }
 
 // Read returns the content of the file (either local or remote).
-func (r RemoteFs) Read(ctx context.Context, path string) ([]byte, error) {
+func (r *RemoteFs) Read(ctx context.Context, path string) ([]byte, error) {
 	b, _, err := r.ReadHash(ctx, path)
 	return b, err
 }
 
 // Read returns the content of the file (either local or remote). If it is a remote file, returns the commit hash as well.
-func (r RemoteFs) ReadHash(ctx context.Context, path string) ([]byte, retriever.Hash, error) {
+func (r *RemoteFs) ReadHash(ctx context.Context, path string) ([]byte, retriever.Hash, error) {
 	if r.IsRemote(path) {
 		resource, err := r.ParseResource(path)
 		if err != nil {
 			return nil, retriever.ZeroHash, err
 		}
+
+		if r.vendorDir != "" {
+			if _, err := os.Stat(filepath.Join(r.vendorDir, path)); err == nil {
+				body, err := ioutil.ReadFile(filepath.Join(r.vendorDir, path))
+				if err == nil {
+					return body, resource.Ref.Hash(), nil
+				}
+			}
+		}
+
 		b, err := r.retriever.Retrieve(ctx, resource)
 		if err != nil {
 			return nil, retriever.ZeroHash, err
 		}
+
+		if r.vendorDir != "" {
+			p := filepath.Join(r.vendorDir, resource.String())
+			err = os.MkdirAll(filepath.Dir(p), os.ModePerm)
+			if err != nil {
+				return nil, resource.Ref.Hash(), err
+			}
+			err = ioutil.WriteFile(p, b, 0644)
+			if err != nil {
+				return nil, resource.Ref.Hash(), err
+			}
+		}
+
 		return b, resource.Ref.Hash(), nil
 	}
 
 	return r.fs.ReadHash(ctx, path)
+}
+
+func (r *RemoteFs) Vendor(dir string) {
+	r.vendorDir = filepath.Clean(dir)
+	log.Info("vendor files are stored under", r.vendorDir)
 }
 
 const remoteImportPrefix = "//"
@@ -85,7 +115,7 @@ const remoteImportPrefix = "//"
 // e.g. valid remote file paths:
 // - github.com/foo/bar/path/to/file@v0.0.1
 // - //github.com/foo/bar/path/to/file@v0.0.1
-func (RemoteFs) IsRemote(path string) bool {
+func (*RemoteFs) IsRemote(path string) bool {
 	if strings.HasPrefix(path, remoteImportPrefix) {
 		return true
 	}
@@ -101,6 +131,6 @@ func (RemoteFs) IsRemote(path string) bool {
 var resourceRegexp = `^((\w+\.)+(\w)+(/[\w-]+){2})((/[\w.-]+)+)(@([\w.-]+))?$`
 
 // ParseResource takes a string in certain format and returns the corresponding resource.
-func (RemoteFs) ParseResource(str string) (*retriever.Resource, error) {
+func (*RemoteFs) ParseResource(str string) (*retriever.Resource, error) {
 	return retriever.ParseResource(strings.TrimPrefix(str, remoteImportPrefix), resourceRegexp, 1, 5, 8)
 }
