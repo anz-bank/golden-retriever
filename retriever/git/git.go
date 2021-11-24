@@ -14,10 +14,13 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/net/proxy"
 )
 
 func init() {
 	log.SetLevel(log.WarnLevel)
+
+	proxy.RegisterDialerType("http", httpProxy)
 }
 
 func isReferenceNotFoundErr(err error) bool {
