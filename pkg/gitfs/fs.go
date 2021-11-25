@@ -72,6 +72,10 @@ func (g *gitMemFs) Chmod(name string, mode os.FileMode) error {
 	panic("unimplemented")
 }
 
+func (r *gitMemFs) Chown(n string, uid, gid int) error {
+	panic("unimplemented")
+}
+
 func (g *gitMemFs) Chtimes(name string, atime time.Time, mtime time.Time) error {
 	panic("unimplemented")
 }
