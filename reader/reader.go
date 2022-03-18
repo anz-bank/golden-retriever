@@ -10,4 +10,5 @@ import (
 type Reader interface {
 	Read(context.Context, string) ([]byte, error)
 	ReadHash(context.Context, string) ([]byte, retriever.Hash, error)
+	ReadHashBranch(context.Context, string) ([]byte, retriever.Hash, string, error)
 }

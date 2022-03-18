@@ -60,48 +60,53 @@ func NewWithRetriever(fs *filesystem.Fs, retr retriever.Retriever) *RemoteFs {
 
 // Read returns the content of the file (either local or remote).
 func (r *RemoteFs) Read(ctx context.Context, path string) ([]byte, error) {
-	b, _, err := r.ReadHash(ctx, path)
+	b, _, _, err := r.ReadHashBranch(ctx, path)
 	return b, err
 }
 
 // Read returns the content of the file (either local or remote). If it is a remote file, returns the commit hash as well.
 func (r *RemoteFs) ReadHash(ctx context.Context, path string) ([]byte, retriever.Hash, error) {
+	b, h, _, err := r.ReadHashBranch(ctx, path)
+	return b, h, err
+}
+
+func (r *RemoteFs) ReadHashBranch(ctx context.Context, path string) ([]byte, retriever.Hash, string, error) {
 	if r.IsRemote(path) {
 		resource, err := r.ParseResource(path)
 		if err != nil {
-			return nil, retriever.ZeroHash, err
+			return nil, retriever.ZeroHash, "", err
 		}
 
 		if r.vendorDir != "" {
 			if _, err := os.Stat(filepath.Join(r.vendorDir, path)); err == nil {
 				body, err := ioutil.ReadFile(filepath.Join(r.vendorDir, path))
 				if err == nil {
-					return body, resource.Ref.Hash(), nil
+					return body, resource.Ref.Hash(), resource.Ref.Name(), nil
 				}
 			}
 		}
 
 		b, err := r.retriever.Retrieve(ctx, resource)
 		if err != nil {
-			return nil, retriever.ZeroHash, err
+			return nil, retriever.ZeroHash, "", err
 		}
 
 		if r.vendorDir != "" {
 			p := filepath.Join(r.vendorDir, resource.String())
 			err = os.MkdirAll(filepath.Dir(p), os.ModePerm)
 			if err != nil {
-				return nil, resource.Ref.Hash(), err
+				return nil, resource.Ref.Hash(), resource.Ref.Name(), err
 			}
 			err = ioutil.WriteFile(p, b, 0644)
 			if err != nil {
-				return nil, resource.Ref.Hash(), err
+				return nil, resource.Ref.Hash(), resource.Ref.Name(), err
 			}
 		}
 
-		return b, resource.Ref.Hash(), nil
+		return b, resource.Ref.Hash(), resource.Ref.Name(), nil
 	}
 
-	return r.fs.ReadHash(ctx, path)
+	return r.fs.ReadHashBranch(ctx, path)
 }
 
 func (r *RemoteFs) Vendor(dir string) {
