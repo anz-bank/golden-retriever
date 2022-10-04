@@ -13,12 +13,18 @@ import (
 	"github.com/anz-bank/golden-retriever/reader/filesystem"
 	"github.com/anz-bank/golden-retriever/retriever"
 	"github.com/anz-bank/golden-retriever/retriever/git"
+	"github.com/anz-bank/golden-retriever/reader"
 	log "github.com/sirupsen/logrus"
+	"github.com/spf13/afero"
 )
+
+// ensures RemoteFs implements afero and Reader
+var _ afero.Fs = &RemoteFs{}
+var _ reader.Reader = &RemoteFs{}
 
 // RemoteFs
 type RemoteFs struct {
-	fs        *filesystem.Fs
+	*filesystem.Fs
 	retriever retriever.Retriever
 	vendorDir string
 }
@@ -26,7 +32,7 @@ type RemoteFs struct {
 // New initializes and returns an instance of RemoteFs.
 func New(fs *filesystem.Fs, retriever retriever.Retriever) *RemoteFs {
 	return &RemoteFs{
-		fs:        fs,
+		Fs:        fs,
 		retriever: retriever,
 	}
 }
@@ -106,7 +112,7 @@ func (r *RemoteFs) ReadHashBranch(ctx context.Context, path string) ([]byte, ret
 		return b, resource.Ref.Hash(), resource.Ref.Name(), nil
 	}
 
-	return r.fs.ReadHashBranch(ctx, path)
+	return r.Fs.ReadHashBranch(ctx, path)
 }
 
 func (r *RemoteFs) Vendor(dir string) {
