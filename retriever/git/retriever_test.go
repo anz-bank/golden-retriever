@@ -179,7 +179,9 @@ func TestGitRetrievePrivateRepoAuthNone(t *testing.T) {
 
 	noneGit := New(nil)
 	c, err := noneGit.Retrieve(context.Background(), ParseResource(t, privRepoREADME))
-	require.EqualError(t, err, "git clone: Unable to authenticate, tried: \n    - None: authentication required,\n")
+	errMsg := err.Error()
+	require.Contains(t, errMsg, "git clone: Unable to authenticate, tried:")
+	require.Contains(t, errMsg, "- None: authentication required")
 	require.Equal(t, "", string(c))
 }
 
@@ -201,7 +203,10 @@ func TestGitRetrievePrivateRepoAuthToken(t *testing.T) {
 
 	wrongTokenGit := New(&AuthOptions{Tokens: map[string]string{"github.com": "foobar"}})
 	c, err = wrongTokenGit.Retrieve(context.Background(), ParseResource(t, privRepoREADME))
-	require.EqualError(t, err, "git clone: Unable to authenticate, tried: \n    - None: authentication required,\n    - Username and Password/Token: authentication required")
+	errMsg := err.Error()
+	require.Contains(t, errMsg, "git clone: Unable to authenticate, tried:")
+	require.Contains(t, errMsg, "- None: authentication required")
+	require.Contains(t, errMsg, "- Username and Password/Token: authentication required")
 	require.Equal(t, "", string(c))
 }
 
