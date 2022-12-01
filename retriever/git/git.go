@@ -3,6 +3,7 @@ package git
 import (
 	"context"
 	"fmt"
+	"github.com/anz-bank/golden-retriever/once"
 	"os"
 	"strings"
 
@@ -31,6 +32,15 @@ var nomatchspecErr = git.NoMatchingRefSpecError{}
 
 // Clone a repository into the given cache directory.
 func (a Git) Clone(ctx context.Context, resource *retriever.Resource) (r *git.Repository, err error) {
+	return a.CloneWithOpts(ctx, resource, CloneOpts{Depth: 1})
+}
+
+type CloneOpts struct {
+	Depth int
+}
+
+// CloneWithOpts clones a repository into the given cache directory using the given options.
+func (a Git) CloneWithOpts(ctx context.Context, resource *retriever.Resource, opts CloneOpts) (r *git.Repository, err error) {
 	repo := resource.Repo
 	c, isPlain := a.cacher.(PlainFsCache)
 
@@ -44,7 +54,7 @@ func (a Git) Clone(ctx context.Context, resource *retriever.Resource) (r *git.Re
 			return nil, err
 		}
 
-		err = a.FetchCommit(ctx, r, repo, resource.Ref.Hash())
+		err = a.FetchCommitWithOpts(ctx, r, repo, resource.Ref.Hash(), FetchOpts{Depth: opts.Depth})
 		return
 	}
 
@@ -54,7 +64,7 @@ func (a Git) Clone(ctx context.Context, resource *retriever.Resource) (r *git.Re
 		auth, url := meth.AuthMethod(repo)
 		options := &git.CloneOptions{
 			URL:   url,
-			Depth: 1,
+			Depth: opts.Depth,
 			Auth:  auth,
 		}
 
@@ -100,34 +110,51 @@ func (a Git) Fetch(ctx context.Context, r *git.Repository, resource *retriever.R
 
 // FetchRef fetches specific reference
 func (a Git) FetchRef(ctx context.Context, r *git.Repository, repo string, ref string) (err error) {
+	tried := []string{}
+	for iter := retriever.NewRefIterator(retriever.RefRules, ref); iter.Next(); {
+		refSpec := iter.Current()
+		if refSpec == "HEAD" {
+			refSpec = fmt.Sprintf("+%s:refs/remotes/origin/%[1]s", "HEAD")
+		} else {
+			refSpec = fmt.Sprintf("+%s:%[1]s", refSpec)
+		}
+		err = a.FetchRefSpec(ctx, r, repo, config.RefSpec(refSpec), FetchOpts{Depth: 1})
+		if err == nil {
+			return nil
+		}
+		errmsg := err.Error()
+		tried = append(tried, fmt.Sprintf("    - %s: %s", refSpec, errmsg))
+	}
+
+	return fmt.Errorf("Unable to find reference, tried: \n%s", strings.Join(tried, ",\n"))
+}
+
+type FetchOpts struct {
+	Depth int
+	Force bool
+}
+
+// FetchRefSpec fetches a specific reference specification
+func (a Git) FetchRefSpec(ctx context.Context, r *git.Repository, repo string, spec config.RefSpec, opts FetchOpts) (err error) {
 	options := &git.FetchOptions{
-		Depth:    1,
+		Depth:    opts.Depth,
+		Force:    opts.Force,
 		Progress: os.Stdout,
 	}
 
-	tried := []string{}
+	var tried []string
 	for _, meth := range a.authMethods {
 		auth, _ := meth.AuthMethod(repo)
 		options.Auth = auth
-
-		for iter := retriever.NewRefIterator(retriever.RefRules, ref); iter.Next(); {
-			refSpec := iter.Current()
-			if refSpec == "HEAD" {
-				refSpec = fmt.Sprintf("+%s:refs/remotes/origin/%[1]s", "HEAD")
-			} else {
-				refSpec = fmt.Sprintf("+%s:%[1]s", refSpec)
-			}
-			options.RefSpecs = []config.RefSpec{config.RefSpec(refSpec)}
-
-			err = r.FetchContext(ctx, options)
-			if err == nil || err == git.NoErrAlreadyUpToDate {
-				return nil
-			}
+		options.RefSpecs = []config.RefSpec{spec}
+		err = r.FetchContext(ctx, options)
+		if err == nil || err == git.NoErrAlreadyUpToDate {
+			return nil
 		}
 
 		errmsg := err.Error()
 		if nomatchspecErr.Is(err) {
-			errmsg = fmt.Sprintf("reference %s not found", ref)
+			errmsg = fmt.Sprintf("reference %s not found", spec)
 		}
 		tried = append(tried, fmt.Sprintf("    - %s: %s", meth.Name(), errmsg))
 	}
@@ -137,6 +164,10 @@ func (a Git) FetchRef(ctx context.Context, r *git.Repository, repo string, ref s
 
 // FetchCommit the latest history of a repository in the cache directory.
 func (a Git) FetchCommit(ctx context.Context, r *git.Repository, repo string, hash retriever.Hash) error {
+	return a.FetchCommitWithOpts(ctx, r, repo, hash, FetchOpts{Depth: 1})
+}
+
+func (a Git) FetchCommitWithOpts(ctx context.Context, r *git.Repository, repo string, hash retriever.Hash, opts FetchOpts) error {
 	_, err := r.CommitObject(plumbing.NewHash(hash.String()))
 	if err == nil {
 		return nil
@@ -152,7 +183,7 @@ func (a Git) FetchCommit(ctx context.Context, r *git.Repository, repo string, ha
 
 	refSpec := fmt.Sprintf("%s:%[1]s", hash)
 	options := &git.FetchOptions{
-		Depth:    1,
+		Depth:    opts.Depth,
 		RefSpecs: []config.RefSpec{config.RefSpec(refSpec)},
 	}
 
@@ -227,6 +258,28 @@ func (a Git) Show(r *git.Repository, resource *retriever.Resource) ([]byte, erro
 	return []byte(contents), nil
 }
 
+type checkoutOpts struct {
+	force bool
+}
+
+// Checkout the repository at the reference of the given retriever.
+func (a Git) checkout(r *git.Repository, resource *retriever.Resource, opts checkoutOpts) error {
+	err := a.ResolveReference(r, resource)
+	if err != nil {
+		return err
+	}
+
+	worktree, err := r.Worktree()
+	if err != nil {
+		return err
+	}
+
+	return worktree.Checkout(&git.CheckoutOptions{
+		Hash:  plumbing.NewHash(resource.Ref.Hash().String()),
+		Force: opts.force,
+	})
+}
+
 // ResolveReference resolves a SymbolicReference to a HashReference.
 func (a Git) ResolveReference(r *git.Repository, resource *retriever.Resource) (err error) {
 	if resource.Ref == nil {
@@ -263,4 +316,92 @@ func (a Git) ResolveReference(r *git.Repository, resource *retriever.Resource) (
 	}
 	resource.Ref.SetHash(hash)
 	return
+}
+
+// Session provides a mechanism to ensure that repeat requests to set the content of a repository to a given
+// reference are guaranteed to be stable. For example, if an initial request is made to set a repository to contents of
+// the remote 'main' branch, then subsequent requests within the same session to set the repository to the remote 'main'
+// branch are guaranteed to set the repository to the same state, even if the 'main' branch on the remote repository has
+// changed since it was first retrieved.
+type Session interface {
+	// Set the content of the repository to the given origin reference.
+	// The reference (ref) can be one of the following formats:
+	// 1. Branch name: e.g. main
+	// 2. Tag name: e.g. tags/t
+	// 3. Hash: e.g. 865e3e5c6fca0120285c3aa846fdb049f8f074e6
+	Set(ctx context.Context, repo string, ref string, opts SessionSetOpts) error
+}
+
+// SessionSetOpts provide configuration to the Session/Set
+type SessionSetOpts struct {
+
+	// Whether known symbolic references should be fetched and updated from the remote repository the first time it is
+	// accessed, even if the reference is already known in the local repository.
+	Fetch bool
+
+	// Whether changes to the repository should be forced.
+	Force bool
+
+	// FIXME: A couple of issues exist within go-git that prevents the sensible use of this value in all scenarios.
+	// The recommendation is therefore to fetch values at depth zero (fetch all values) until these issues are resolved.
+	// https://github.com/go-git/go-git/issues/305
+	// https://github.com/go-git/go-git/issues/328
+	Depth int // The depth at which content should be fetched.
+}
+
+type sessionImpl struct {
+	once   once.Once
+	hashes map[string]retriever.Hash
+	g      *Git
+}
+
+func NewSession(g *Git) Session {
+	return sessionImpl{
+		once:   once.NewOnce(),
+		hashes: make(map[string]retriever.Hash),
+		g:      g}
+}
+
+func (s sessionImpl) Set(ctx context.Context, repo string, ref string, opts SessionSetOpts) error {
+	key := repo + "@" + ref
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		ch := s.once.Register(key)
+		defer s.once.Unregister(key)
+		if ch != nil {
+			<-ch
+		}
+
+		hash, ok := s.hashes[key]
+		if ok {
+			reference, err := retriever.NewHashReference(hash)
+			if err != nil {
+				return err
+			}
+			resource := retriever.Resource{Repo: repo, Ref: reference}
+			return s.g.Set(ctx, &resource, SetOpts{Fetch: false, Force: opts.Force, Depth: opts.Depth})
+		} else {
+			reference, err := resolveReference(ref)
+			if err != nil {
+				return err
+			}
+			resource := retriever.Resource{Repo: repo, Ref: reference}
+			err = s.g.Set(ctx, &resource, SetOpts{Fetch: opts.Fetch, Force: opts.Force, Depth: opts.Depth})
+			if err != nil {
+				return err
+			}
+			s.hashes[key] = resource.Ref.Hash()
+			return nil
+		}
+	}
+}
+
+func resolveReference(ref string) (*retriever.Reference, error) {
+	hash, err := retriever.NewHash(ref)
+	if err == nil {
+		return retriever.NewHashReference(hash)
+	}
+	return retriever.NewSymbolicReference(ref), nil
 }

@@ -3,6 +3,7 @@ package git
 import (
 	"context"
 	"errors"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -45,21 +46,23 @@ func TestGitRetrieveCloneWrongResource(t *testing.T) {
 	defer patch.Unpatch()
 
 	tests := []struct {
-		resourceStr string
-		errmsg      string
+		resourceStr    string
+		errMsgContains []string
 	}{
-		{pubRepo + "/README", "git show: file not found"},
-		{pubRepo + "/wrong.md", "git show: file not found"},
-		{pubRepo + "/README.md@nosuchbranch", "git clone: Unable to authenticate, tried: \n    - None: reference nosuchbranch not found"},
-		{pubRepo + "/README.md@v100.0.0", "git clone: Unable to authenticate, tried: \n    - None: reference v100.0.0 not found"},
-		{pubRepo + "/README.md@commitshanotfoundc668cebc411f1b03171501f", "git clone: Unable to authenticate, tried: \n    - None: reference commitshanotfoundc668cebc411f1b03171501f not found"},
+		{pubRepo + "/README", []string{"git show: file not found"}},
+		{pubRepo + "/wrong.md", []string{"git show: file not found"}},
+		{pubRepo + "/README.md@nosuchbranch", []string{"git clone: Unable to authenticate, tried:", "- None: reference nosuchbranch not found"}},
+		{pubRepo + "/README.md@v100.0.0", []string{"git clone: Unable to authenticate, tried:", "- None: reference v100.0.0 not found"}},
+		{pubRepo + "/README.md@commitshanotfoundc668cebc411f1b03171501f", []string{"git clone: Unable to authenticate, tried:", "- None: reference commitshanotfoundc668cebc411f1b03171501f not found"}},
 	}
 
 	for _, tr := range tests {
 		t.Run(tr.resourceStr, func(t *testing.T) {
 			r := New(nil)
 			content, err := r.Retrieve(context.Background(), ParseResource(t, tr.resourceStr))
-			require.EqualError(t, err, tr.errmsg)
+			for _, msg := range tr.errMsgContains {
+				require.Contains(t, err.Error(), msg)
+			}
 			require.Equal(t, "", string(content))
 		})
 	}
@@ -176,7 +179,7 @@ func TestGitRetrievePrivateRepoAuthNone(t *testing.T) {
 
 	noneGit := New(nil)
 	c, err := noneGit.Retrieve(context.Background(), ParseResource(t, privRepoREADME))
-	require.EqualError(t, err, "git clone: Unable to authenticate, tried: \n    - None: authentication required")
+	require.EqualError(t, err, "git clone: Unable to authenticate, tried: \n    - None: authentication required,\n")
 	require.Equal(t, "", string(c))
 }
 
@@ -262,4 +265,118 @@ func ParseResource(t require.TestingT, str string) *retriever.Resource {
 	r, err := retriever.ParseResource(str, `^([\w\.]+(\/[\w\-\_]+){2})((\/[\w+\.]+){1,})(@([\w\.\-]+))?$`, 1, 3, 6)
 	require.NoError(t, err)
 	return r
+}
+
+// Verify setting the repository using the various supported reference types (branch, tag, hash) sets the content.
+func TestGitSession_SetReferenceTypes(t *testing.T) {
+	tmpDir := "tmpdir"
+	defer func() {
+		_, err := os.Stat(tmpDir)
+		require.NoError(t, err)
+		err = os.RemoveAll(tmpDir)
+		require.NoError(t, err)
+	}()
+	repo := pubRepo
+	cacher := NewPlainFscache(tmpDir)
+	g := NewWithCache(nil, cacher)
+	repoDir := cacher.RepoDir(repo)
+	session := NewSession(g)
+
+	// Retrieve the main branch
+	err := session.Set(context.Background(), repo, "main", SessionSetOpts{Fetch: true, Force: true})
+	require.NoError(t, err)
+
+	// Verify the content of the main branch
+	file, err := ioutil.ReadFile(filepath.Join(repoDir, "README.md"))
+	require.NoError(t, err)
+	require.Equal(t, pubRepoV2Content, string(file))
+
+	// Retrieve a specific hash
+	err = session.Set(context.Background(), repo, pubRepoV1SHA, SessionSetOpts{Fetch: true, Force: true})
+	require.NoError(t, err)
+
+	// Verify the content of the hash
+	file, err = ioutil.ReadFile(filepath.Join(repoDir, "README.md"))
+	require.NoError(t, err)
+	require.Equal(t, pubRepoV1Content, string(file))
+
+	// Retrieve a tag
+	err = session.Set(context.Background(), repo, "tags/v0.0.2", SessionSetOpts{Fetch: true, Force: true})
+	require.NoError(t, err)
+
+	// Verify the content of the tag
+	file, err = ioutil.ReadFile(filepath.Join(repoDir, "README.md"))
+	require.NoError(t, err)
+	require.Equal(t, pubRepoV2Content, string(file))
+
+	// Remove authentication methods to ensure another fetch cannot be done
+	g.authMethods = []Authenticator{}
+
+	// Retrieve the main branch again
+	err = session.Set(context.Background(), repo, "main", SessionSetOpts{Fetch: true, Force: true})
+	require.NoError(t, err)
+
+	// Verify the content of the main branch
+	file, err = ioutil.ReadFile(filepath.Join(repoDir, "README.md"))
+	require.NoError(t, err)
+	require.Equal(t, pubRepoV2Content, string(file))
+}
+
+// Verify setting the repository to a specific hash sets the content.
+func TestGitSession_SetHash(t *testing.T) {
+	tmpDir := "tmpdir"
+	defer func() {
+		_, err := os.Stat(tmpDir)
+		require.NoError(t, err)
+		err = os.RemoveAll(tmpDir)
+		require.NoError(t, err)
+	}()
+	repo := pubRepo
+	cacher := NewPlainFscache(tmpDir)
+	g := NewWithCache(nil, cacher)
+	repoDir := cacher.RepoDir(repo)
+	session := NewSession(g)
+
+	// Retrieve a specific hash
+	err := session.Set(context.Background(), repo, pubRepoV1SHA, SessionSetOpts{Fetch: true, Force: true})
+	require.NoError(t, err)
+
+	// Verify the content of the hash
+	file, err := ioutil.ReadFile(filepath.Join(repoDir, "README.md"))
+	require.NoError(t, err)
+	require.Equal(t, pubRepoV1Content, string(file))
+}
+
+// Verify setting the repository within a session that doesn't opt to pre-fetch references still sets the content.
+func TestGitSession_SetNoFetch(t *testing.T) {
+	tmpDir := "tmpdir"
+	defer func() {
+		_, err := os.Stat(tmpDir)
+		require.NoError(t, err)
+		err = os.RemoveAll(tmpDir)
+		require.NoError(t, err)
+	}()
+	repo := pubRepo
+	cacher := NewPlainFscache(tmpDir)
+	g := NewWithCache(nil, cacher)
+	repoDir := cacher.RepoDir(repo)
+	session := NewSession(g)
+
+	// Retrieve the main branch (without pre-fetching)
+	err := session.Set(context.Background(), repo, "main", SessionSetOpts{Fetch: false, Force: true})
+	require.NoError(t, err)
+
+	// Verify the content of the main branch
+	file, err := ioutil.ReadFile(filepath.Join(repoDir, "README.md"))
+	require.NoError(t, err)
+	require.Equal(t, pubRepoV2Content, string(file))
+
+	// Retrieve a specific hash (without pre-fetching)
+	err = session.Set(context.Background(), repo, pubRepoV1SHA, SessionSetOpts{Fetch: false, Force: true})
+	require.NoError(t, err)
+
+	// Verify the content of the hash
+	file, err = ioutil.ReadFile(filepath.Join(repoDir, "README.md"))
+	require.NoError(t, err)
+	require.Equal(t, pubRepoV1Content, string(file))
 }
