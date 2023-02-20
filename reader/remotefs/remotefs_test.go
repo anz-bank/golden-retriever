@@ -12,6 +12,7 @@ func TestParseResource(t *testing.T) {
 
 	ref := retriever.NewSymbolicReference("ref")
 	refref := retriever.NewSymbolicReference("ref.ref")
+	featurerefref := retriever.NewSymbolicReference("feature/ref.ref")
 	tests := []struct {
 		str      string
 		resource *retriever.Resource
@@ -23,6 +24,7 @@ func TestParseResource(t *testing.T) {
 		{"//github.com/foo/bar/file/path", &retriever.Resource{Repo: "github.com/foo/bar", Filepath: "file/path", Ref: retriever.HEADReference()}, require.NoError},
 		{"//github.com/foo/bar/file/path@ref", &retriever.Resource{Repo: "github.com/foo/bar", Filepath: "file/path", Ref: ref}, require.NoError},
 		{"//github.com/foo-foo/bar_bar/file/path.et@ref.ref", &retriever.Resource{Repo: "github.com/foo-foo/bar_bar", Filepath: "file/path.et", Ref: refref}, require.NoError},
+		{"//github.com/foo-foo/bar_bar/file/path.et@feature/ref.ref", &retriever.Resource{Repo: "github.com/foo-foo/bar_bar", Filepath: "file/path.et", Ref: featurerefref}, require.NoError},
 	}
 
 	for _, test := range tests {
