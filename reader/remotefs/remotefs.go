@@ -139,7 +139,7 @@ func (*RemoteFs) IsRemote(path string) bool {
 }
 
 // resourceRegexp is the regular expression of remote file path string. e.g. github.com/foo/bar/path/to/file@v0.0.1
-var resourceRegexp = `^((\w+\.)+(\w)+(/[\w-]+){2})((/[\w.-]+)+)(@([\w.-/]+))?$`
+var resourceRegexp = `^((\w+\.)+(\w)+(/[\w-]+){2})((/[\w.-]+)+)(@([\w./-]+))?$`
 
 // ParseResource takes a string in certain format and returns the corresponding resource.
 func (*RemoteFs) ParseResource(str string) (*retriever.Resource, error) {
