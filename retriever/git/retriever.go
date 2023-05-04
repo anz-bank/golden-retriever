@@ -3,12 +3,13 @@ package git
 import (
 	"context"
 	"fmt"
-	"github.com/go-git/go-git/v5/config"
 	"strings"
+	"time"
 
 	"github.com/anz-bank/golden-retriever/once"
 	"github.com/anz-bank/golden-retriever/retriever"
 
+	"github.com/go-git/go-git/v5/config"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -26,8 +27,7 @@ func New(options *AuthOptions) *Git {
 
 // NewWithCache returns new Git with given authencitation parameters and git cacher.
 func NewWithCache(options *AuthOptions, cacher Cacher) *Git {
-	methods := make([]Authenticator, 1)
-	methods[0] = None{}
+	methods := make([]Authenticator, 0, 2)
 
 	if sshagent, err := NewSSHAgent(); err == nil {
 		methods = append(methods, sshagent)
@@ -59,6 +59,8 @@ func NewWithCache(options *AuthOptions, cacher Cacher) *Git {
 			methods = append(methods, NewBasicAuth(creds))
 		}
 	}
+
+	methods = append(methods, None{})
 
 	return &Git{
 		authMethods: methods,
@@ -193,7 +195,11 @@ func (a Git) Retrieve(ctx context.Context, resource *retriever.Resource) (c []by
 
 		r, ok := a.cacher.Get(resource.Repo)
 		if !ok {
-			r, err = a.Clone(ctx, resource)
+			start := time.Now()
+			log.Debugf(" ===> clone: %s@%s\n", resource.Repo, resource.Ref.Name())
+			// Can't pass {SingleBranch: !resource.Ref.IsHEAD()} because the ref could be a tag
+			r, err = a.CloneWithOpts(ctx, resource, CloneOpts{Depth: 1})
+			log.Debugf(" <=== clone (%s) complete in %s\n", resource.Repo, time.Since(start))
 			if err != nil {
 				return nil, fmt.Errorf("git clone: %s", err.Error())
 			}

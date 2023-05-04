@@ -36,7 +36,8 @@ func (a Git) Clone(ctx context.Context, resource *retriever.Resource) (r *git.Re
 }
 
 type CloneOpts struct {
-	Depth int
+	Depth        int
+	SingleBranch bool // warning do not set this to true if the reference could be a tag
 }
 
 // CloneWithOpts clones a repository into the given cache directory using the given options.
@@ -63,34 +64,25 @@ func (a Git) CloneWithOpts(ctx context.Context, resource *retriever.Resource, op
 	for _, meth := range a.authMethods {
 		auth, url := meth.AuthMethod(repo)
 		options := &git.CloneOptions{
-			URL:   url,
-			Depth: opts.Depth,
-			Auth:  auth,
+			URL:           url,
+			Depth:         opts.Depth,
+			Auth:          auth,
+			SingleBranch:  opts.SingleBranch,
+			ReferenceName: plumbing.ReferenceName(resource.Ref.Name()),
 		}
 
-		ref := resource.Ref.Name()
-		rules := retriever.RefRules
-		if ref == "HEAD" {
-			ref = "heads"
-			rules = []string{"refs/%s/master", "refs/%s/main"}
+		if isPlain {
+			r, err = git.PlainCloneContext(ctx, c.RepoDir(repo), false, options)
+		} else {
+			r, err = git.CloneContext(ctx, a.cacher.NewStorer(repo), memfs.New(), options)
 		}
-
-		for iter := retriever.NewRefIterator(rules, ref); iter.Next(); {
-			options.ReferenceName = plumbing.ReferenceName(iter.Current())
-
-			if isPlain {
-				r, err = git.PlainCloneContext(ctx, c.RepoDir(repo), false, options)
-			} else {
-				r, err = git.CloneContext(ctx, a.cacher.NewStorer(repo), memfs.New(), options)
-			}
-			if err == nil {
-				return r, nil
-			}
+		if err == nil {
+			return r, nil
 		}
 
 		errmsg := err.Error()
 		if isReferenceNotFoundErr(err) {
-			errmsg = fmt.Sprintf("reference %s not found", ref)
+			errmsg = fmt.Sprintf("reference %s not found", resource.Ref.Name())
 		}
 		if transport.ErrRepositoryNotFound == err {
 			errmsg = fmt.Sprintf("repository %s not found", repo)
@@ -182,7 +174,7 @@ func (a Git) FetchCommitWithOpts(ctx context.Context, r *git.Repository, repo st
 	}
 
 	refSpec := fmt.Sprintf("%s:%[1]s", hash)
-	options := &git.FetchOptions{
+	base_options := git.FetchOptions{
 		Depth:    opts.Depth,
 		RefSpecs: []config.RefSpec{config.RefSpec(refSpec)},
 	}
@@ -190,6 +182,8 @@ func (a Git) FetchCommitWithOpts(ctx context.Context, r *git.Repository, repo st
 	tried := []string{}
 	for i, meth := range a.authMethods {
 		auth, url := meth.AuthMethod(repo)
+		// Note that some default values are set based on auth during the fetch, start again from a clean base
+		options := base_options
 		options.Auth = auth
 
 		if isEmpty {
@@ -219,7 +213,7 @@ func (a Git) FetchCommitWithOpts(ctx context.Context, r *git.Repository, repo st
 			}
 		}
 
-		err = r.FetchContext(ctx, options)
+		err = r.FetchContext(ctx, &options)
 		if err == nil || err == git.NoErrAlreadyUpToDate {
 			return nil
 		}
@@ -314,7 +308,7 @@ func (a Git) ResolveReference(r *git.Repository, resource *retriever.Resource) (
 	if err != nil {
 		return
 	}
-	resource.Ref.SetHash(hash)
+	err = resource.Ref.SetHash(hash)
 	return
 }
 

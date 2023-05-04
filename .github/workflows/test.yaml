@@ -14,13 +14,14 @@ jobs:
         os: [macos-latest, windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - name: Set up Go 1.14
-        uses: actions/setup-go@v1
+      - name: Set up Go
+        uses: actions/setup-go@v3
         with:
-          go-version: 1.14
+          go-version: 1.19
+          check-latest: true
 
       - name: Check out
-        uses: actions/checkout@master
+        uses: actions/checkout@v3
 
       - name: Make Short Test
         if: ${{ github.repository_owner != 'anz-bank' }}

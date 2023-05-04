@@ -98,6 +98,9 @@ func TestGitRetrieveClonePublicRepo(t *testing.T) {
 func TestGitRetrieveToFilesystem(t *testing.T) {
 	tmpDir := "tmpdir"
 	repodir := filepath.Join(tmpDir, pubRepo)
+	// Ensure tmpdir is empty to start with
+	_, err := os.Stat(repodir)
+	require.Error(t, err, "tmpdir is not empty before starting the test")
 	defer func() {
 		_, err := os.Stat(repodir)
 		require.NoError(t, err)
@@ -116,6 +119,9 @@ func TestGitRetrieveToFilesystem(t *testing.T) {
 func TestGitRetrieveHEADThenTag(t *testing.T) {
 	tmpDir := "tmpdir"
 	repodir := filepath.Join(tmpDir, pubRepo)
+	// Ensure tmpdir is empty to start with
+	_, err := os.Stat(repodir)
+	require.Error(t, err, "tmpdir is not empty before starting the test")
 	defer func() {
 		_, err := os.Stat(repodir)
 		require.NoError(t, err)
@@ -139,6 +145,9 @@ func TestGitRetrieveHEADThenTag(t *testing.T) {
 func TestGitRetrieveCloneThenFetchRepo(t *testing.T) {
 	tmpDir := "tmpdir"
 	repodir := filepath.Join(tmpDir, pubRepo)
+	// Ensure tmpdir is empty to start with
+	_, err := os.Stat(repodir)
+	require.Error(t, err, "tmpdir is not empty before starting the test")
 	defer func() {
 		_, err := os.Stat(repodir)
 		require.NoError(t, err)
@@ -275,6 +284,9 @@ func ParseResource(t require.TestingT, str string) *retriever.Resource {
 // Verify setting the repository using the various supported reference types (branch, tag, hash) sets the content.
 func TestGitSession_SetReferenceTypes(t *testing.T) {
 	tmpDir := "tmpdir"
+	// Ensure tmpdir is empty to start with
+	_, err := os.Stat(tmpDir)
+	require.Error(t, err, "tmpdir is not empty before starting the test")
 	defer func() {
 		_, err := os.Stat(tmpDir)
 		require.NoError(t, err)
@@ -288,7 +300,7 @@ func TestGitSession_SetReferenceTypes(t *testing.T) {
 	session := NewSession(g)
 
 	// Retrieve the main branch
-	err := session.Set(context.Background(), repo, "main", SessionSetOpts{Fetch: true, Force: true})
+	err = session.Set(context.Background(), repo, "main", SessionSetOpts{Fetch: true, Force: true})
 	require.NoError(t, err)
 
 	// Verify the content of the main branch
@@ -330,6 +342,9 @@ func TestGitSession_SetReferenceTypes(t *testing.T) {
 // Verify setting the repository to a specific hash sets the content.
 func TestGitSession_SetHash(t *testing.T) {
 	tmpDir := "tmpdir"
+	// Ensure tmpdir is empty to start with
+	_, err := os.Stat(tmpDir)
+	require.Error(t, err, "tmpdir is not empty before starting the test")
 	defer func() {
 		_, err := os.Stat(tmpDir)
 		require.NoError(t, err)
@@ -343,7 +358,7 @@ func TestGitSession_SetHash(t *testing.T) {
 	session := NewSession(g)
 
 	// Retrieve a specific hash
-	err := session.Set(context.Background(), repo, pubRepoV1SHA, SessionSetOpts{Fetch: true, Force: true})
+	err = session.Set(context.Background(), repo, pubRepoV1SHA, SessionSetOpts{Fetch: true, Force: true})
 	require.NoError(t, err)
 
 	// Verify the content of the hash
@@ -355,6 +370,9 @@ func TestGitSession_SetHash(t *testing.T) {
 // Verify setting the repository within a session that doesn't opt to pre-fetch references still sets the content.
 func TestGitSession_SetNoFetch(t *testing.T) {
 	tmpDir := "tmpdir"
+	// Ensure tmpdir is empty to start with
+	_, err := os.Stat(tmpDir)
+	require.Error(t, err, "tmpdir is not empty before starting the test")
 	defer func() {
 		_, err := os.Stat(tmpDir)
 		require.NoError(t, err)
@@ -368,7 +386,7 @@ func TestGitSession_SetNoFetch(t *testing.T) {
 	session := NewSession(g)
 
 	// Retrieve the main branch (without pre-fetching)
-	err := session.Set(context.Background(), repo, "main", SessionSetOpts{Fetch: false, Force: true})
+	err = session.Set(context.Background(), repo, "main", SessionSetOpts{Fetch: false, Force: true})
 	require.NoError(t, err)
 
 	// Verify the content of the main branch
