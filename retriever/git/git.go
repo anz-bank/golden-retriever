@@ -38,6 +38,7 @@ func (a Git) Clone(ctx context.Context, resource *retriever.Resource) (r *git.Re
 type CloneOpts struct {
 	Depth        int
 	SingleBranch bool // warning do not set this to true if the reference could be a tag
+	NoCheckout   bool
 }
 
 // CloneWithOpts clones a repository into the given cache directory using the given options.
@@ -69,6 +70,7 @@ func (a Git) CloneWithOpts(ctx context.Context, resource *retriever.Resource, op
 			Auth:          auth,
 			SingleBranch:  opts.SingleBranch,
 			ReferenceName: plumbing.ReferenceName(resource.Ref.Name()),
+			NoCheckout:    opts.NoCheckout,
 		}
 
 		if isPlain {
@@ -102,23 +104,18 @@ func (a Git) Fetch(ctx context.Context, r *git.Repository, resource *retriever.R
 
 // FetchRef fetches specific reference
 func (a Git) FetchRef(ctx context.Context, r *git.Repository, repo string, ref string) (err error) {
-	tried := []string{}
-	for iter := retriever.NewRefIterator(retriever.RefRules, ref); iter.Next(); {
-		refSpec := iter.Current()
-		if refSpec == "HEAD" {
-			refSpec = fmt.Sprintf("+%s:refs/remotes/origin/%[1]s", "HEAD")
-		} else {
-			refSpec = fmt.Sprintf("+%s:%[1]s", refSpec)
-		}
-		err = a.FetchRefSpec(ctx, r, repo, config.RefSpec(refSpec), FetchOpts{Depth: 1})
-		if err == nil {
-			return nil
-		}
-		errmsg := err.Error()
-		tried = append(tried, fmt.Sprintf("    - %s: %s", refSpec, errmsg))
+	var refSpec string
+	if ref == "HEAD" {
+		refSpec = fmt.Sprintf("+%s:refs/remotes/origin/%[1]s", "HEAD")
+	} else {
+		refSpec = fmt.Sprintf("+%s:%[1]s", ref)
+	}
+	err = a.FetchRefSpec(ctx, r, repo, config.RefSpec(refSpec), FetchOpts{Depth: 1})
+	if err == nil {
+		return nil
 	}
 
-	return fmt.Errorf("Unable to find reference, tried: \n%s", strings.Join(tried, ",\n"))
+	return fmt.Errorf("Unable to find reference, tried - %s: %s", refSpec, err.Error())
 }
 
 type FetchOpts struct {
@@ -128,17 +125,17 @@ type FetchOpts struct {
 
 // FetchRefSpec fetches a specific reference specification
 func (a Git) FetchRefSpec(ctx context.Context, r *git.Repository, repo string, spec config.RefSpec, opts FetchOpts) (err error) {
-	options := &git.FetchOptions{
-		Depth:    opts.Depth,
-		Force:    opts.Force,
-		Progress: os.Stdout,
-	}
-
 	var tried []string
 	for _, meth := range a.authMethods {
-		auth, _ := meth.AuthMethod(repo)
-		options.Auth = auth
-		options.RefSpecs = []config.RefSpec{spec}
+		auth, url := meth.AuthMethod(repo)
+		options := &git.FetchOptions{
+			Depth:     opts.Depth,
+			Force:     opts.Force,
+			Progress:  os.Stdout,
+			Auth:      auth,
+			RemoteURL: url,
+			RefSpecs:  []config.RefSpec{spec},
+		}
 		err = r.FetchContext(ctx, options)
 		if err == nil || err == git.NoErrAlreadyUpToDate {
 			return nil
@@ -310,6 +307,45 @@ func (a Git) ResolveReference(r *git.Repository, resource *retriever.Resource) (
 	}
 	err = resource.Ref.SetHash(hash)
 	return
+}
+
+// TryResolveAsTag tries to resolve a SymbolicReference as a Tag Reference.
+func (a Git) TryResolveAsTag(r *git.Repository, resource *retriever.Resource) bool {
+	if resource.Ref == nil {
+		return false
+	}
+
+	if resource.Ref.IsHash() {
+		return false
+	}
+
+	var h *plumbing.Hash
+	if resource.Ref.IsHEAD() {
+		return false
+	}
+
+	rev := resource.Ref.Name()
+	if strings.HasPrefix(rev, "refs/") {
+		if !strings.HasPrefix(rev, "refs/tags/") {
+			return false
+		}
+
+		rev = rev[10:]
+	}
+
+	rev = "refs/tags/" + rev
+	h, err := r.ResolveRevision(plumbing.Revision(rev))
+	if err != nil {
+		return false
+	}
+
+	hash, err := retriever.NewHash(h.String())
+	if err != nil {
+		return false
+	}
+	err = resource.Ref.SetHash(hash)
+
+	return true
 }
 
 // Session provides a mechanism to ensure that repeat requests to set the content of a repository to a given

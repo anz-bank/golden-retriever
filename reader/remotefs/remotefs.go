@@ -38,6 +38,7 @@ func New(fs *filesystem.Fs, retriever retriever.Retriever) *RemoteFs {
 }
 
 var CacheDir string
+var NoForcedFetch bool
 
 func init() {
 	userCacheDir, err := os.UserCacheDir()
@@ -50,13 +51,13 @@ func init() {
 // NewWithGitRetriever initializes and returns an instance of RemoteFs with retriever git.Git.
 func NewWithGitRetriever(fs *filesystem.Fs, options *git.AuthOptions) (*RemoteFs, error) {
 	log.Debugf("cached git repositories folder: %s", CacheDir)
-	return New(fs, git.NewWithCache(options, git.NewPlainFscache(CacheDir))), nil
+	return New(fs, git.NewWithOptions(&git.NewGitOptions{options, git.NewPlainFscache(CacheDir), NoForcedFetch})), nil
 }
 
 // NewPinnerGitRetriever initializes and returns an instance of pinner.Pinner.
 func NewPinnerGitRetriever(modFile string, options *git.AuthOptions) (retriever.Retriever, error) {
 	log.Debugf("cached git repositories folder: %s", CacheDir)
-	return pinner.New(modFile, git.NewWithCache(options, git.NewPlainFscache(CacheDir)))
+	return pinner.New(modFile, git.NewWithOptions(&git.NewGitOptions{options, git.NewPlainFscache(CacheDir), NoForcedFetch}))
 }
 
 // NewWithRetriever initializes and returns an instance of RemoteFs with a retriever.

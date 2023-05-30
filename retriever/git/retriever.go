@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/anz-bank/golden-retriever/once"
 	"github.com/anz-bank/golden-retriever/retriever"
 
+	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	log "github.com/sirupsen/logrus"
 )
@@ -18,15 +20,29 @@ type Git struct {
 	authMethods []Authenticator
 	cacher      Cacher
 	once        once.Once
+
+	noForcedFetch bool
+	fetchedRefs   *sync.Map
 }
 
-// New returns new Git with given authencitation parameters. Cache repositories in memory by default.
+// New returns new Git with given authentication parameters. Cache repositories in memory by default.
 func New(options *AuthOptions) *Git {
-	return NewWithCache(options, NewMemcache())
+	return NewWithOptions(&NewGitOptions{options, NewMemcache(), false})
 }
 
-// NewWithCache returns new Git with given authencitation parameters and git cacher.
+// NewWithCache returns new Git with given authentication parameters and git cacher.
 func NewWithCache(options *AuthOptions, cacher Cacher) *Git {
+	return NewWithOptions(&NewGitOptions{options, cacher, false})
+}
+
+type NewGitOptions struct {
+	AuthOptions   *AuthOptions
+	Cacher        Cacher
+	NoForcedFetch bool
+}
+
+// NewWithOptions returns new Git with given options.
+func NewWithOptions(options *NewGitOptions) *Git {
 	methods := make([]Authenticator, 0, 2)
 
 	if sshagent, err := NewSSHAgent(); err == nil {
@@ -35,22 +51,22 @@ func NewWithCache(options *AuthOptions, cacher Cacher) *Git {
 		log.Debugf("New SSH Agent error: %s", err.Error())
 	}
 
-	if options != nil {
-		if len(options.SSHKeys) > 0 {
-			if m, err := NewSSHKeyAuth(options.SSHKeys); err != nil {
+	if options.AuthOptions != nil {
+		if len(options.AuthOptions.SSHKeys) > 0 {
+			if m, err := NewSSHKeyAuth(options.AuthOptions.SSHKeys); err != nil {
 				log.Debugf("Set up SSH key error: %s", err.Error())
 			} else {
 				methods = append(methods, m)
 			}
 		}
 
-		if len(options.Credentials) > 0 {
-			methods = append(methods, NewBasicAuth(options.Credentials))
+		if len(options.AuthOptions.Credentials) > 0 {
+			methods = append(methods, NewBasicAuth(options.AuthOptions.Credentials))
 		}
 
-		if len(options.Tokens) > 0 {
-			creds := make(map[string]Credential, len(options.Tokens))
-			for host, token := range options.Tokens {
+		if len(options.AuthOptions.Tokens) > 0 {
+			creds := make(map[string]Credential, len(options.AuthOptions.Tokens))
+			for host, token := range options.AuthOptions.Tokens {
 				creds[host] = Credential{
 					Username: "modv2",
 					Password: token,
@@ -64,12 +80,15 @@ func NewWithCache(options *AuthOptions, cacher Cacher) *Git {
 
 	return &Git{
 		authMethods: methods,
-		cacher:      cacher,
+		cacher:      options.Cacher,
 		once:        once.NewOnce(),
+
+		noForcedFetch: options.NoForcedFetch,
+		fetchedRefs:   &sync.Map{},
 	}
 }
 
-// AuthOptions describes which authenication methods are available.
+// AuthOptions describes which authentication methods are available.
 type AuthOptions struct {
 	// Credentials is a key-value pairs of <host>, <username+password>, e.g. { "github.com": {"username": "abcdef", "password": "123456"} }
 	Credentials map[string]Credential
@@ -180,6 +199,24 @@ func originRefSpec(resource *retriever.Resource, update bool) config.RefSpec {
 	return config.RefSpec(str)
 }
 
+func keyFromResource(resource *retriever.Resource) string {
+	return resource.Repo + ":" + resource.Ref.Name()
+}
+
+func (a Git) setFetched(r *git.Repository, resource *retriever.Resource) {
+	a.fetchedRefs.Store(keyFromResource(resource), true)
+	if resource.Ref.IsHEAD() {
+		_ = a.ResolveReference(r, resource)
+		a.fetchedRefs.Store(keyFromResource(resource), true)
+	}
+}
+
+func (a Git) isFetched(resource *retriever.Resource) bool {
+	_, found := a.fetchedRefs.Load(keyFromResource(resource))
+
+	return found
+}
+
 // Retrieve remote file in format of <repo>/<filepath>@<ref>, e.g. github.com/org/foo/bar.json@v0.1.0
 // Return the latest content of the file in default branch if no ref specified
 func (a Git) Retrieve(ctx context.Context, resource *retriever.Resource) (c []byte, err error) {
@@ -191,6 +228,10 @@ func (a Git) Retrieve(ctx context.Context, resource *retriever.Resource) (c []by
 		defer a.once.Unregister(resource.Repo)
 		if ch != nil {
 			<-ch
+
+			// Don't just continue otherwise you could get multiple threads continuing at the same time
+			// Try again, checking for ctx.Done() as well
+			return a.Retrieve(ctx, resource)
 		}
 
 		r, ok := a.cacher.Get(resource.Repo)
@@ -198,20 +239,37 @@ func (a Git) Retrieve(ctx context.Context, resource *retriever.Resource) (c []by
 			start := time.Now()
 			log.Debugf(" ===> clone: %s@%s\n", resource.Repo, resource.Ref.Name())
 			// Can't pass {SingleBranch: !resource.Ref.IsHEAD()} because the ref could be a tag
-			r, err = a.CloneWithOpts(ctx, resource, CloneOpts{Depth: 1})
+			r, err = a.CloneWithOpts(ctx, resource, CloneOpts{Depth: 1, NoCheckout: true})
 			log.Debugf(" <=== clone (%s) complete in %s\n", resource.Repo, time.Since(start))
 			if err != nil {
 				return nil, fmt.Errorf("git clone: %s", err.Error())
 			}
+			a.setFetched(r, resource)
 		} else {
-			c, err = a.Show(r, resource)
-			if err == nil {
-				return c, nil
+			if a.noForcedFetch {
+				c, err = a.Show(r, resource)
+				if err == nil {
+					return c, nil
+				}
 			}
 
-			err = a.Fetch(ctx, r, resource)
-			if err != nil {
-				return nil, fmt.Errorf("git fetch: %s", err.Error())
+			if resource.Ref.IsHEAD() {
+				_ = a.ResolveReference(r, resource)
+			}
+
+			// Check if it's a tag, we assume tags don't change so don't need to refetch
+			if a.TryResolveAsTag(r, resource) {
+				a.setFetched(r, resource)
+			} else if !a.isFetched(resource) {
+				start := time.Now()
+				log.Debugf(" ===> fetching: %s@%s\n", resource.Repo, resource.Ref.Name())
+				err = a.Fetch(ctx, r, resource)
+				log.Debugf(" <=== fetching (%s) complete in %s\n", resource.Repo, time.Since(start))
+				if err != nil {
+					return nil, fmt.Errorf("git fetch: %s", err.Error())
+				}
+
+				a.setFetched(r, resource)
 			}
 		}
 
