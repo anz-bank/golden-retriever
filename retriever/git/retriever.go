@@ -254,7 +254,9 @@ func (a Git) Retrieve(ctx context.Context, resource *retriever.Resource) (c []by
 			}
 
 			if resource.Ref.IsHEAD() {
+				// Resolve HEAD branch but don't keep the current hash
 				_ = a.ResolveReference(r, resource)
+				resource.Ref = retriever.NewSymbolicReference(resource.Ref.Name())
 			}
 
 			// Check if it's a tag, we assume tags don't change so don't need to refetch
