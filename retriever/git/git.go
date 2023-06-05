@@ -3,10 +3,9 @@ package git
 import (
 	"context"
 	"fmt"
-	"github.com/anz-bank/golden-retriever/once"
-	"os"
 	"strings"
 
+	"github.com/anz-bank/golden-retriever/once"
 	"github.com/anz-bank/golden-retriever/retriever"
 
 	"github.com/go-git/go-billy/v5/memfs"
@@ -126,12 +125,16 @@ type FetchOpts struct {
 // FetchRefSpec fetches a specific reference specification
 func (a Git) FetchRefSpec(ctx context.Context, r *git.Repository, repo string, spec config.RefSpec, opts FetchOpts) (err error) {
 	var tried []string
+
+	logWriter := log.StandardLogger().Writer()
+	defer func() { _ = logWriter.Close() }()
+
 	for _, meth := range a.authMethods {
 		auth, url := meth.AuthMethod(repo)
 		options := &git.FetchOptions{
 			Depth:     opts.Depth,
 			Force:     opts.Force,
-			Progress:  os.Stdout,
+			Progress:  logWriter,
 			Auth:      auth,
 			RemoteURL: url,
 			RefSpecs:  []config.RefSpec{spec},

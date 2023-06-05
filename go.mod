@@ -4,7 +4,7 @@ go 1.18
 
 require (
 	github.com/go-git/go-billy/v5 v5.4.1
-	github.com/go-git/go-git/v5 v5.7.1-0.20230529135456-d37c8b92eb84
+	github.com/go-git/go-git/v5 v5.7.1-0.20230605071237-d4b7c8f42f07
 	github.com/sirupsen/logrus v1.8.1
 	github.com/spf13/afero v1.8.2
 	github.com/stretchr/testify v1.7.0
