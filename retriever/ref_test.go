@@ -16,11 +16,11 @@ func TestReference(t *testing.T) {
 		ref *Reference
 		err func(require.TestingT, error, ...interface{})
 	}{
-		{"", ZeroHash, &Reference{HEAD, ZeroHash}, require.NoError},
-		{"main", ZeroHash, &Reference{"main", ZeroHash}, require.NoError},
-		{"foo", ZeroHash, &Reference{"foo", ZeroHash}, require.NoError},
-		{"", h, &Reference{"", h}, require.NoError},
-		{"foo", h, &Reference{"foo", h}, require.NoError},
+		{"", ZeroHash, &Reference{HEAD, ZeroHash, ReferenceTypeBranch}, require.NoError},
+		{"main", ZeroHash, &Reference{"main", ZeroHash, ReferenceTypeSymbolic}, require.NoError},
+		{"foo", ZeroHash, &Reference{"foo", ZeroHash, ReferenceTypeSymbolic}, require.NoError},
+		{"", h, &Reference{"", h, ReferenceTypeHash}, require.NoError},
+		{"foo", h, &Reference{"foo", h, ReferenceTypeSymbolic}, require.NoError},
 	}
 
 	for _, r := range refs {

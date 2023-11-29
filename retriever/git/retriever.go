@@ -104,8 +104,14 @@ type SetOpts struct {
 	Depth int
 }
 
+func (o SetOpts) String() string {
+	return fmt.Sprintf("{Fetch:%v, Force:%v, Depth:%v}",
+		o.Fetch, o.Force, o.Depth)
+}
+
 // Set the repository to the given resource reference.
 func (a Git) Set(ctx context.Context, resource *retriever.Resource, opts SetOpts) (err error) {
+	log.Debugf("setting repository to resource: %v with opts: %v", resource, opts)
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -121,8 +127,19 @@ func (a Git) Set(ctx context.Context, resource *retriever.Resource, opts SetOpts
 		// Cache the reference spec to retrieve if necessary
 		spec := originRefSpec(resource, true)
 
+		// Cache whether the 'single branch' option should be set when fetching.
+		singleBranch := resource.Ref.Type() == retriever.ReferenceTypeBranch
+
+		// Cache whether the 'no tags' option should be set when fetching.
+		noTags := resource.Ref.Type() != retriever.ReferenceTypeTag &&
+			resource.Ref.Type() != retriever.ReferenceTypeSymbolic
+
 		// Cache the options with which to fetch from the remote repository
-		fetchOpts := FetchOpts{Depth: opts.Depth, Force: true}
+		fetchOpts := FetchOpts{
+			Depth:  opts.Depth,
+			Force:  true,
+			NoTags: noTags,
+		}
 
 		// Clone and checkout the repository if it doesn't exist
 		if !ok {
@@ -133,9 +150,12 @@ func (a Git) Set(ctx context.Context, resource *retriever.Resource, opts SetOpts
 				cloneResource := resource
 				cloneResource = &retriever.Resource{
 					Repo: resource.Repo,
-					Ref:  retriever.NewSymbolicReference("HEAD"),
+					Ref:  retriever.HEADReference(),
 				}
-				r, err = a.CloneWithOpts(ctx, cloneResource, CloneOpts{Depth: opts.Depth})
+				r, err = a.CloneWithOpts(ctx, cloneResource, CloneOpts{
+					Depth:        opts.Depth,
+					SingleBranch: true,
+					NoTags:       true})
 				if err != nil {
 					return fmt.Errorf("git clone: %s", err.Error())
 				}
@@ -144,7 +164,11 @@ func (a Git) Set(ctx context.Context, resource *retriever.Resource, opts SetOpts
 					return fmt.Errorf("git fetch: %s", err.Error())
 				}
 			} else {
-				r, err = a.CloneWithOpts(ctx, resource, CloneOpts{Depth: opts.Depth})
+				r, err = a.CloneWithOpts(ctx, resource, CloneOpts{
+					Depth:        opts.Depth,
+					SingleBranch: singleBranch,
+					NoTags:       noTags,
+				})
 				if err != nil {
 					return fmt.Errorf("git clone: %s", err.Error())
 				}
@@ -187,11 +211,7 @@ func originRefSpec(resource *retriever.Resource, update bool) config.RefSpec {
 	} else if strings.HasPrefix(resource.Ref.Name(), "tags/") {
 		str = fmt.Sprintf("refs/%s:refs/remotes/origin/%[1]s", resource.Ref.String())
 	} else {
-		// go-git does not attempt to fetch a named remote branch if that branch is already known locally.
-		// For example:
-		// refs/heads/main:refs/remotes/origin/main
-		// To work around this we fetch everything.
-		str = fmt.Sprintf("refs/*:refs/*")
+		str = fmt.Sprintf("refs/heads/%v:refs/remotes/origin/%[1]s", resource.Ref.String())
 	}
 	if update {
 		str = "+" + str
@@ -256,7 +276,7 @@ func (a Git) Retrieve(ctx context.Context, resource *retriever.Resource) (c []by
 			if resource.Ref.IsHEAD() {
 				// Resolve HEAD branch but don't keep the current hash
 				_ = a.ResolveReference(r, resource)
-				resource.Ref = retriever.NewSymbolicReference(resource.Ref.Name())
+				resource.Ref = retriever.NewBranchReference(resource.Ref.Name())
 			}
 
 			// Check if it's a tag, we assume tags don't change so don't need to refetch

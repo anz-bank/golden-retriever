@@ -13,11 +13,33 @@ var RefRules = append([]string{"%s"}, plumbing.RefRevParseRules...)
 type Reference struct {
 	name string
 	hash Hash
+	typ  ReferenceType
+}
+
+type ReferenceType int
+
+const (
+	ReferenceTypeUnknown  ReferenceType = iota
+	ReferenceTypeSymbolic               // branch or tag
+	ReferenceTypeBranch
+	ReferenceTypeTag
+	ReferenceTypeHash
+)
+
+// NewBranchReference returns a new git reference to a branch.
+func NewBranchReference(name string) *Reference {
+	return &Reference{name: name, typ: ReferenceTypeBranch}
+}
+
+// NewTagReference returns a new git reference to a tag.
+func NewTagReference(tag string) *Reference {
+	return &Reference{name: tag, typ: ReferenceTypeTag}
 }
 
 // NewSymbolicReference returns a new symbolic git reference including branch and tag. e.g. v0.0.1, main, develop.
+// Note: Where possible prefer NewBranchReference or NewTagReference.
 func NewSymbolicReference(n string) *Reference {
-	return &Reference{name: n}
+	return &Reference{name: n, typ: ReferenceTypeSymbolic}
 }
 
 // NewHashReference returns a new hash git reference.
@@ -25,31 +47,35 @@ func NewHashReference(h Hash) (*Reference, error) {
 	if !h.IsValid() {
 		return nil, fmt.Errorf("Invalid commit SHA %s", h)
 	}
-	return &Reference{hash: h}, nil
+	return &Reference{hash: h, typ: ReferenceTypeHash}, nil
 }
 
 // HEADReference returns a HEAD git reference.
 func HEADReference() *Reference {
-	return &Reference{name: HEAD}
+	return &Reference{name: HEAD, typ: ReferenceTypeBranch}
 }
 
 // NewReference returns a new Reference.
 func NewReference(n string, h Hash) (*Reference, error) {
-	if n == "" && h.IsZero() {
-		return HEADReference(), nil
+	if n != "" {
+		ref := NewSymbolicReference(n)
+		if h.IsValid() {
+			err := ref.SetHash(h)
+			if err != nil {
+				return nil, err
+			}
+		}
+		return ref, nil
+	} else {
+		if h.IsZero() {
+			return HEADReference(), nil
+		} else {
+			return NewHashReference(h)
+		}
 	}
-
-	if h.IsValid() || h.IsZero() {
-		return &Reference{
-			name: n,
-			hash: h,
-		}, nil
-	}
-
-	return nil, fmt.Errorf("Invalid commit SHA %s", h)
 }
 
-// Hash returns the value of the reference name.
+// Name returns the value of the reference name.
 func (r *Reference) Name() string {
 	return r.name
 }
@@ -73,6 +99,10 @@ func (r *Reference) SetHash(hash Hash) error {
 	return nil
 }
 
+func (r *Reference) Type() ReferenceType {
+	return r.typ
+}
+
 const (
 	HEAD = "HEAD"
 )
@@ -87,7 +117,7 @@ func (r *Reference) IsEmpty() bool {
 	return r == &Reference{}
 }
 
-// IsHEAD reports whether the reference is a HashReference.
+// IsHash reports whether the reference is a HashReference.
 func (r *Reference) IsHash() bool {
 	return !r.hash.IsZero()
 }

@@ -38,10 +38,17 @@ type CloneOpts struct {
 	Depth        int
 	SingleBranch bool // warning do not set this to true if the reference could be a tag
 	NoCheckout   bool
+	NoTags       bool // do not fetch tags
+}
+
+func (o CloneOpts) String() string {
+	return fmt.Sprintf("{Depth:%v, SingleBranch:%v, NoCheckout:%v, NoTags: %v}",
+		o.Depth, o.SingleBranch, o.NoCheckout, o.NoTags)
 }
 
 // CloneWithOpts clones a repository into the given cache directory using the given options.
 func (a Git) CloneWithOpts(ctx context.Context, resource *retriever.Resource, opts CloneOpts) (r *git.Repository, err error) {
+	log.Debugf("cloning repository to resource: %v with opts: %v", resource, opts)
 	repo := resource.Repo
 	c, isPlain := a.cacher.(PlainFsCache)
 
@@ -61,6 +68,11 @@ func (a Git) CloneWithOpts(ctx context.Context, resource *retriever.Resource, op
 
 	tried := []string{}
 
+	tags := git.AllTags
+	if opts.NoTags {
+		tags = git.NoTags
+	}
+
 	for _, meth := range a.authMethods {
 		auth, url := meth.AuthMethod(repo)
 		options := &git.CloneOptions{
@@ -70,6 +82,7 @@ func (a Git) CloneWithOpts(ctx context.Context, resource *retriever.Resource, op
 			SingleBranch:  opts.SingleBranch,
 			ReferenceName: plumbing.ReferenceName(resource.Ref.Name()),
 			NoCheckout:    opts.NoCheckout,
+			Tags:          tags,
 		}
 
 		if isPlain {
@@ -118,16 +131,28 @@ func (a Git) FetchRef(ctx context.Context, r *git.Repository, repo string, ref s
 }
 
 type FetchOpts struct {
-	Depth int
-	Force bool
+	Depth  int
+	Force  bool
+	NoTags bool
+}
+
+func (o FetchOpts) String() string {
+	return fmt.Sprintf("{Depth:%v, Force:%v, NoTags:%v}",
+		o.Depth, o.Force, o.NoTags)
 }
 
 // FetchRefSpec fetches a specific reference specification
 func (a Git) FetchRefSpec(ctx context.Context, r *git.Repository, repo string, spec config.RefSpec, opts FetchOpts) (err error) {
+	log.Debugf("fetching ref spec: %v with opts: %v", spec, opts)
 	var tried []string
 
 	logWriter := log.StandardLogger().Writer()
 	defer func() { _ = logWriter.Close() }()
+
+	tags := git.AllTags
+	if opts.NoTags {
+		tags = git.NoTags
+	}
 
 	for _, meth := range a.authMethods {
 		auth, url := meth.AuthMethod(repo)
@@ -138,7 +163,9 @@ func (a Git) FetchRefSpec(ctx context.Context, r *git.Repository, repo string, s
 			Auth:      auth,
 			RemoteURL: url,
 			RefSpecs:  []config.RefSpec{spec},
+			Tags:      tags,
 		}
+		log.Debugf("fetching ref spec context with auth method: %v", meth.Name())
 		err = r.FetchContext(ctx, options)
 		if err == nil || err == git.NoErrAlreadyUpToDate {
 			return nil
@@ -256,8 +283,13 @@ type checkoutOpts struct {
 	force bool
 }
 
+func (o checkoutOpts) String() string {
+	return fmt.Sprintf("{force:%v}", o.force)
+}
+
 // Checkout the repository at the reference of the given retriever.
 func (a Git) checkout(r *git.Repository, resource *retriever.Resource, opts checkoutOpts) error {
+	log.Debugf("checking out repository to resource: %v with opts: %v", resource, opts)
 	err := a.ResolveReference(r, resource)
 	if err != nil {
 		return err
@@ -375,11 +407,11 @@ type SessionSetOpts struct {
 	// Whether changes to the repository should be forced.
 	Force bool
 
-	// FIXME: A couple of issues exist within go-git that prevents the sensible use of this value in all scenarios.
-	// The recommendation is therefore to fetch values at depth zero (fetch all values) until these issues are resolved.
-	// https://github.com/go-git/go-git/issues/305
-	// https://github.com/go-git/go-git/issues/328
-	Depth int // The depth at which content should be fetched.
+	// The depth at which content should be fetched.
+	Depth int
+
+	// Whether verbose (i.e. debug level) logs should be written when interacting with the session.
+	Verbose bool
 }
 
 type sessionImpl struct {
@@ -396,15 +428,21 @@ func NewSession(g *Git) Session {
 }
 
 func (s sessionImpl) Set(ctx context.Context, repo string, ref string, opts SessionSetOpts) error {
-	key := repo + "@" + ref
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
+		key := repo + "@" + ref
 		ch := s.once.Register(key)
 		defer s.once.Unregister(key)
 		if ch != nil {
 			<-ch
+		}
+
+		if opts.Verbose {
+			level := log.GetLevel()
+			log.SetLevel(log.DebugLevel)
+			defer func() { log.SetLevel(level) }()
 		}
 
 		hash, ok := s.hashes[key]
@@ -432,6 +470,11 @@ func (s sessionImpl) Set(ctx context.Context, repo string, ref string, opts Sess
 }
 
 func resolveReference(ref string) (*retriever.Reference, error) {
+	// Make an assumption that certain references are branches. By declaring them to be
+	// branches we can reduce the amount of data required to be retrieved in certain instances.
+	if ref == "main" || ref == "master" || ref == "develop" {
+		return retriever.NewBranchReference(ref), nil
+	}
 	hash, err := retriever.NewHash(ref)
 	if err == nil {
 		return retriever.NewHashReference(hash)
