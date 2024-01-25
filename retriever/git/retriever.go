@@ -211,7 +211,7 @@ func originRefSpec(resource *retriever.Resource, update bool) config.RefSpec {
 	} else if strings.HasPrefix(resource.Ref.Name(), "tags/") {
 		str = fmt.Sprintf("refs/%s:refs/remotes/origin/%[1]s", resource.Ref.String())
 	} else {
-		str = fmt.Sprintf("refs/heads/%v:refs/remotes/origin/%[1]s", resource.Ref.String())
+		str = fmt.Sprintf("%v:%[1]s", resource.Ref.String())
 	}
 	if update {
 		str = "+" + str
