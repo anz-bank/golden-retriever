@@ -38,12 +38,12 @@ type CloneOpts struct {
 	Depth        int
 	SingleBranch bool // warning do not set this to true if the reference could be a tag
 	NoCheckout   bool
-	NoTags       bool // do not fetch tags
+	Tags         OptTags
 }
 
 func (o CloneOpts) String() string {
-	return fmt.Sprintf("{Depth:%v, SingleBranch:%v, NoCheckout:%v, NoTags: %v}",
-		o.Depth, o.SingleBranch, o.NoCheckout, o.NoTags)
+	return fmt.Sprintf("{Depth:%v, SingleBranch:%v, NoCheckout:%v, Tags:%v}",
+		o.Depth, o.SingleBranch, o.NoCheckout, o.Tags)
 }
 
 // CloneWithOpts clones a repository into the given cache directory using the given options.
@@ -68,10 +68,7 @@ func (a Git) CloneWithOpts(ctx context.Context, resource *retriever.Resource, op
 
 	tried := []string{}
 
-	tags := git.AllTags
-	if opts.NoTags {
-		tags = git.NoTags
-	}
+	tags := opts.Tags.TagMode(git.AllTags)
 
 	for _, meth := range a.authMethods {
 		auth, url := meth.AuthMethod(repo)
@@ -131,14 +128,38 @@ func (a Git) FetchRef(ctx context.Context, r *git.Repository, repo string, ref s
 }
 
 type FetchOpts struct {
-	Depth  int
-	Force  bool
-	NoTags bool
+	Depth int
+	Force bool
+	Tags  OptTags
+}
+
+type OptTags int
+
+const (
+	FetchOptTagsDefault   OptTags = iota // Fetch the default tags for the operation.
+	FetchOptTagsAll                      // Fetch all tags.
+	FetchOptTagsFollowing                // Fetch any tag that points into the histories being fetched.
+	FetchOptTagsNone                     // Don't fetch tags.
+)
+
+func (t OptTags) TagMode(def git.TagMode) git.TagMode {
+	switch t {
+	case FetchOptTagsDefault:
+		return def
+	case FetchOptTagsAll:
+		return git.AllTags
+	case FetchOptTagsFollowing:
+		return git.TagFollowing
+	case FetchOptTagsNone:
+		return git.NoTags
+	default:
+		panic(fmt.Errorf("invalid tag: %v", t))
+	}
 }
 
 func (o FetchOpts) String() string {
-	return fmt.Sprintf("{Depth:%v, Force:%v, NoTags:%v}",
-		o.Depth, o.Force, o.NoTags)
+	return fmt.Sprintf("{Depth:%v, Force:%v, Tags:%v}",
+		o.Depth, o.Force, o.Tags)
 }
 
 // FetchRefSpec fetches a specific reference specification
@@ -149,10 +170,7 @@ func (a Git) FetchRefSpec(ctx context.Context, r *git.Repository, repo string, s
 	logWriter := log.StandardLogger().Writer()
 	defer func() { _ = logWriter.Close() }()
 
-	tags := git.AllTags
-	if opts.NoTags {
-		tags = git.NoTags
-	}
+	tags := opts.Tags.TagMode(git.AllTags)
 
 	for _, meth := range a.authMethods {
 		auth, url := meth.AuthMethod(repo)
@@ -168,6 +186,7 @@ func (a Git) FetchRefSpec(ctx context.Context, r *git.Repository, repo string, s
 		log.Debugf("fetching ref spec context with auth method: %v", meth.Name())
 		err = r.FetchContext(ctx, options)
 		if err == nil || err == git.NoErrAlreadyUpToDate {
+			log.Debugf("ref spec: %v fetched with auth method: %v", spec, meth.Name())
 			return nil
 		}
 
@@ -397,15 +416,14 @@ type Session interface {
 	Set(ctx context.Context, repo string, ref string, opts SessionSetOpts) error
 }
 
-// SessionSetOpts provide configuration to the Session/Set
+// SessionSetOpts provide configuration to the Session.Set
 type SessionSetOpts struct {
 
-	// Whether known symbolic references should be fetched and updated from the remote repository the first time it is
-	// accessed, even if the reference is already known in the local repository.
-	Fetch bool
+	// How to fetch (or not) content from remote repositories.
+	Fetch SessionSetOptFetch
 
-	// Whether changes to the repository should be forced.
-	Force bool
+	// How to reset (or not) the state of repositories.
+	Reset SessionSetOptReset
 
 	// The depth at which content should be fetched.
 	Depth int
@@ -414,16 +432,36 @@ type SessionSetOpts struct {
 	Verbose bool
 }
 
+// SessionSetOptFetch describes how the Session.Set fetches from remote repositories.
+type SessionSetOptFetch int
+
+const (
+	SessionSetOptFetchFirst   SessionSetOptFetch = iota // Fetch remote content for a reference if it is the first time the reference is set during the session, otherwise don't fetch.
+	SessionSetOptFetchUnknown                           // Fetch remote reference if the reference is unknown to the local repository.
+	SessionSetOptFetchTrue                              // Fetch remote content.
+	SessionSetOptFetchFalse                             // Don't fetch remote content.
+)
+
+// SessionSetOptReset describes how the Session.Set resets the state of repositories.
+type SessionSetOptReset int
+
+const (
+	SessionSetOptResetFirst      SessionSetOptReset = iota // Reset the repository if it is the first time it is set during the session, otherwise reset on checkout.
+	SessionSetOptResetOnCheckout                           // Reset the repository if it is being checked out to a different resource.
+	SessionSetOptResetTrue                                 // Reset the repository.
+	SessionSetOptResetFalse                                // Don't reset the repository.
+)
+
 type sessionImpl struct {
 	once   once.Once
-	hashes map[string]retriever.Hash
+	hashes map[string]string // The mapping of repo@ref to known hashes
 	g      *Git
 }
 
 func NewSession(g *Git) Session {
 	return sessionImpl{
 		once:   once.NewOnce(),
-		hashes: make(map[string]retriever.Hash),
+		hashes: make(map[string]string),
 		g:      g}
 }
 
@@ -439,45 +477,69 @@ func (s sessionImpl) Set(ctx context.Context, repo string, ref string, opts Sess
 			<-ch
 		}
 
+		// Maintain legacy behaviour.
+		ref = strings.TrimPrefix(ref, "tags/")
+
 		if opts.Verbose {
 			level := log.GetLevel()
 			log.SetLevel(log.DebugLevel)
 			defer func() { log.SetLevel(level) }()
 		}
 
-		hash, ok := s.hashes[key]
-		if ok {
-			reference, err := retriever.NewHashReference(hash)
-			if err != nil {
-				return err
-			}
-			resource := retriever.Resource{Repo: repo, Ref: reference}
-			return s.g.Set(ctx, &resource, SetOpts{Fetch: false, Force: opts.Force, Depth: opts.Depth})
-		} else {
-			reference, err := resolveReference(ref)
-			if err != nil {
-				return err
-			}
-			resource := retriever.Resource{Repo: repo, Ref: reference}
-			err = s.g.Set(ctx, &resource, SetOpts{Fetch: opts.Fetch, Force: opts.Force, Depth: opts.Depth})
-			if err != nil {
-				return err
-			}
-			s.hashes[key] = resource.Ref.Hash()
-			return nil
-		}
-	}
-}
+		// Cache whether this is the first request for the session.
+		first := len(s.hashes) == 0
 
-func resolveReference(ref string) (*retriever.Reference, error) {
-	// Make an assumption that certain references are branches. By declaring them to be
-	// branches we can reduce the amount of data required to be retrieved in certain instances.
-	if ref == "main" || ref == "master" || ref == "develop" {
-		return retriever.NewBranchReference(ref), nil
+		// Cache the known session reference hash.
+		sessionRefHash, hasSessionRefHash := s.hashes[key]
+
+		// Use the session hash if known
+		if hasSessionRefHash && ref != sessionRefHash {
+			log.Debugf("conforming reference: %v to hash: %v within current session", ref, sessionRefHash)
+			ref = sessionRefHash
+		}
+
+		// Cache the fetch behaviour.
+		var fetch SetOptFetch
+		switch opts.Fetch {
+		case SessionSetOptFetchFirst:
+			fetch = SetOptFetchTrue
+			if hasSessionRefHash { // Don't fetch, it's not the first time the reference has been set within the session.
+				fetch = SetOptFetchFalse
+			}
+		case SessionSetOptFetchUnknown:
+			fetch = SetOptFetchUnknown
+		case SessionSetOptFetchFalse:
+			fetch = SetOptFetchFalse
+		case SessionSetOptFetchTrue:
+			fetch = SetOptFetchTrue
+		default:
+			return fmt.Errorf("invalid fetch option: %v", opts.Fetch)
+		}
+
+		// Cache the reset behaviour.
+		var reset SetOptReset
+		switch opts.Reset {
+		case SessionSetOptResetFirst:
+			reset = SetOptResetTrue
+			if !first { // Reset on checkout, it's not the first time a reference has been set within the session.
+				reset = SetOptResetOnCheckout
+			}
+		case SessionSetOptResetOnCheckout:
+			reset = SetOptResetOnCheckout
+		case SessionSetOptResetFalse:
+			reset = SetOptResetFalse
+		case SessionSetOptResetTrue:
+			reset = SetOptResetTrue
+		default:
+			return fmt.Errorf("invalid reset option: %v", opts.Reset)
+		}
+
+		// Set the reference.
+		result, err := s.g.Set(ctx, repo, ref, SetOpts{Fetch: fetch, Reset: reset, Depth: opts.Depth})
+		if err != nil {
+			return err
+		}
+		s.hashes[key] = result.Hash
+		return nil
 	}
-	hash, err := retriever.NewHash(ref)
-	if err == nil {
-		return retriever.NewHashReference(hash)
-	}
-	return retriever.NewSymbolicReference(ref), nil
 }

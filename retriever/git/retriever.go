@@ -3,7 +3,6 @@ package git
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -11,7 +10,6 @@ import (
 	"github.com/anz-bank/golden-retriever/retriever"
 
 	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/config"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -99,124 +97,176 @@ type AuthOptions struct {
 }
 
 type SetOpts struct {
-	Fetch bool
-	Force bool
+	Fetch SetOptFetch // How to fetch (or not) content from remote repositories.
+	Reset SetOptReset // How to reset (or not) the state of repositories.
 	Depth int
 }
 
+// SetOptFetch describes how the Session.Set fetches content from remote repositories.
+type SetOptFetch int
+
+const (
+	SetOptFetchTrue    SetOptFetch = iota // Fetch remote content.
+	SetOptFetchUnknown                    // Fetch remote content if the reference is unknown to the local repository.
+	SetOptFetchFalse                      // Don't fetch remote content.
+)
+
+// SetOptReset describes how Git.Set resets the state of repositories.
+type SetOptReset int
+
+const (
+	SetOptResetTrue       SetOptReset = iota // Reset the repository (even if it's already at the requested resource).
+	SetOptResetOnCheckout                    // Reset the repository if it is being checked out to a different resource.
+	SetOptResetFalse                         // Don't reset the repository (but still attempt a checkout without resetting if required).
+)
+
 func (o SetOpts) String() string {
-	return fmt.Sprintf("{Fetch:%v, Force:%v, Depth:%v}",
-		o.Fetch, o.Force, o.Depth)
+	return fmt.Sprintf("{Fetch:%v, Reset:%v, Depth:%v}",
+		o.Fetch, o.Reset, o.Depth)
 }
 
-// Set the repository to the given resource reference.
-func (a Git) Set(ctx context.Context, resource *retriever.Resource, opts SetOpts) (err error) {
-	log.Debugf("setting repository to resource: %v with opts: %v", resource, opts)
+type SetResult struct {
+	Hash string // The hash that the repository was set to.
+}
+
+// Set the repository to the given resource reference, resetting as necessary.
+//
+// This method behaves in the following manner:
+// 1. If the repository doesn't exist, it is cloned and set to the requested reference.
+// 2. If fetching is requested, the remote repository is fetched (at the requested depth) before the reference is resolved.
+// 3. If resetting is not requested, and the repository is already at the requested reference, no action is performed.
+// 4. Otherwise, the repository is cleaned and reset to the requested reference.
+//
+// The following reference types are supported:
+// 1. Branches:         e.g. main
+// 2. Hashes:      		e.g. 1e7c4cecaaa8f76e3c668cebc411f1b03171501f
+// 3. Tags:         	e.g. v0.0.1
+// 4. Prefixed tags:    e.g. tags/v0.0.1 [legacy behaviour]
+//
+// The following reference types are not supported:
+// 1. Short hashes:     e.g. 1e7c4cec
+func (a Git) Set(ctx context.Context, repo, ref string, opts SetOpts) (*SetResult, error) {
+	log.Debugf("setting repo: %v to reference: %v with opts: %v", repo, ref, opts)
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return nil, ctx.Err()
 	default:
-		ch := a.once.Register(resource.Repo)
-		defer a.once.Unregister(resource.Repo)
+		ch := a.once.Register(repo)
+		defer a.once.Unregister(repo)
 		if ch != nil {
 			<-ch
 		}
 
-		r, ok := a.cacher.Get(resource.Repo)
+		// Cache the git repository object.
+		rr, ok := a.cacher.Get(repo)
 
-		// Cache the reference spec to retrieve if necessary
-		spec := originRefSpec(resource, true)
-
-		// Cache whether the 'single branch' option should be set when fetching.
-		singleBranch := resource.Ref.Type() == retriever.ReferenceTypeBranch
-
-		// Cache whether the 'no tags' option should be set when fetching.
-		noTags := resource.Ref.Type() != retriever.ReferenceTypeTag &&
-			resource.Ref.Type() != retriever.ReferenceTypeSymbolic
-
-		// Cache the options with which to fetch from the remote repository
-		fetchOpts := FetchOpts{
-			Depth:  opts.Depth,
-			Force:  true,
-			NoTags: noTags,
-		}
-
-		// Clone and checkout the repository if it doesn't exist
+		// Clone and checkout the repository if it doesn't exist.
 		if !ok {
-			// An issue exists whereby attempting to clone a hash reference results in
-			// failure. To work around this issue, we clone the repository at its head,
-			// then fetch the reference specifically.
-			if resource.Ref.IsHash() {
-				cloneResource := resource
-				cloneResource = &retriever.Resource{
-					Repo: resource.Repo,
-					Ref:  retriever.HEADReference(),
-				}
-				r, err = a.CloneWithOpts(ctx, cloneResource, CloneOpts{
-					Depth:        opts.Depth,
-					SingleBranch: true,
-					NoTags:       true})
-				if err != nil {
-					return fmt.Errorf("git clone: %s", err.Error())
-				}
-				err := a.FetchRefSpec(ctx, r, resource.Repo, spec, fetchOpts)
-				if err != nil {
-					return fmt.Errorf("git fetch: %s", err.Error())
-				}
-			} else {
-				r, err = a.CloneWithOpts(ctx, resource, CloneOpts{
-					Depth:        opts.Depth,
-					SingleBranch: singleBranch,
-					NoTags:       noTags,
+			if opts.Fetch == SetOptFetchFalse {
+				return nil, fmt.Errorf("repository: %v doesn't exist and fetch was explicitly false", repo)
+			}
+			r, err := a.CloneRepo(ctx, repo, CloneOpts{
+				Depth: opts.Depth,
+				Tags:  FetchOptTagsNone,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("error cloning repository to reference: %v: %w", ref, err)
+			}
+			exists, err := r.Exists(ref)
+			if err != nil {
+				return nil, fmt.Errorf("error checking existence of reference: %v: %w", ref, err)
+			}
+			if !exists {
+				err := r.FetchRefOrAll(ctx, ref, FetchOpts{
+					Depth: opts.Depth,
+					Force: true,
+					Tags:  FetchOptTagsNone,
 				})
 				if err != nil {
-					return fmt.Errorf("git clone: %s", err.Error())
+					return nil, fmt.Errorf("error fetching reference: %v: %w", ref, err)
 				}
 			}
-			return a.checkout(r, resource, checkoutOpts{force: opts.Force})
+			err = r.Checkout(ref, CheckoutOpts{
+				Force: true,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("error checking out reference: %v: %w", ref, err)
+			}
+			headHash, err := r.ResolveHash("HEAD")
+			if err != nil {
+				return nil, fmt.Errorf("error resolving head hash: %w", err)
+			}
+			return &SetResult{Hash: headHash}, nil
 		}
 
-		// Either fetch the latest content for the resource if requested, or
-		// fetch the latest content if the resource cannot be resolved
-		if opts.Fetch {
-			err := a.FetchRefSpec(ctx, r, resource.Repo, spec, fetchOpts)
+		// Cache the repository object.
+		r := &Repo{g: &a, r: rr, repo: repo}
+
+		// Cache the current repository hash.
+		headHash, err := r.ResolveHash("HEAD")
+		if err != nil {
+			return nil, fmt.Errorf("error resolving head hash: %w", err)
+		}
+
+		// Cache the hash of the target reference (if known).
+		refHash := ""
+		exists, err := r.Exists(ref)
+		if err != nil {
+			return nil, fmt.Errorf("error resolving existence of reference: %v: %w", ref, err)
+		}
+		if exists {
+			refHash, err = r.ResolveHash(ref)
 			if err != nil {
-				return fmt.Errorf("git fetch: %s", err.Error())
-			}
-		} else {
-			err := a.ResolveReference(r, resource)
-			if err != nil {
-				err = a.FetchRefSpec(ctx, r, resource.Repo, spec, fetchOpts)
-				if err != nil {
-					return fmt.Errorf("git fetch: %s", err.Error())
-				}
+				return nil, fmt.Errorf("error resolving hash for reference: %v: %w", ref, err)
 			}
 		}
 
-		// Checkout the repository at the given reference
-		return a.checkout(r, resource, checkoutOpts{force: opts.Force})
-	}
-}
+		// Cache whether to fetch from the remote repository.
+		fetch := false
+		switch opts.Fetch {
+		case SetOptFetchFalse:
+		case SetOptFetchTrue:
+			if headHash == refHash {
+				log.Debugf("ignoring fetch, repository at requested hash: %v", refHash)
+			} else {
+				fetch = true
+			}
+		case SetOptFetchUnknown:
+			fetch = !exists
+		}
 
-// The RefSpec to use to update the given resource.
-// The following resources are supported:
-// 1. Branch name: e.g. main
-// 2. Tag name: e.g. tags/t
-// 3. Hash: e.g. 865e3e5c6fca0120285c3aa846fdb049f8f074e6
-// The update flag indicates that git should update the reference even if it isn’t a fast-forward.
-func originRefSpec(resource *retriever.Resource, update bool) config.RefSpec {
-	var str = ""
-	if resource.Ref.IsHash() {
-		str = fmt.Sprintf("%s:refs/remotes/origin/%[1]s", resource.Ref.String())
-	} else if strings.HasPrefix(resource.Ref.Name(), "tags/") {
-		str = fmt.Sprintf("refs/%s:refs/remotes/origin/%[1]s", resource.Ref.String())
-	} else {
-		str = fmt.Sprintf("%v:%[1]s", resource.Ref.String())
+		if fetch {
+			err := r.FetchRefOrAll(ctx, ref, FetchOpts{
+				Depth: opts.Depth,
+				Force: true,
+				Tags:  FetchOptTagsNone,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("error fetching reference: %v in repo: %v: %w", ref, r, err)
+			}
+		}
+
+		// Update the reference hash (which may have changed after the fetch).
+		refHash, err = r.ResolveHash(ref)
+		if err != nil {
+			return nil, fmt.Errorf("error resolving hash for reference: %v: %w", ref, err)
+		}
+
+		// Return if we're already at the requested reference, and resetting isn't requested.
+		if headHash == refHash && (opts.Reset != SetOptResetTrue) {
+			log.Debugf("taking no action, repo: %v already set to requested reference: %v and reset not requested", r, ref)
+			return &SetResult{Hash: headHash}, nil
+		}
+
+		// Checkout the repository to the requested reference, resetting as necessary.
+		err = r.Checkout(ref, CheckoutOpts{
+			Force: opts.Reset != SetOptResetFalse,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("error checking out reference: %v: %w", ref, err)
+		}
+		return &SetResult{Hash: refHash}, nil
 	}
-	if update {
-		str = "+" + str
-	}
-	return config.RefSpec(str)
 }
 
 func keyFromResource(resource *retriever.Resource) string {
