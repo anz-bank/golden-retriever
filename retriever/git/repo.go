@@ -165,6 +165,20 @@ func (r *Repo) Checkout(ref string, opts CheckoutOpts) error {
 	})
 }
 
+// IsClean returns whether all files in the repository are unmodified.
+func (r *Repo) IsClean() (bool, error) {
+	log.Debugf("checking clean status of repo: %v", r)
+	worktree, err := r.r.Worktree()
+	if err != nil {
+		return false, err
+	}
+	status, err := worktree.Status()
+	if err != nil {
+		return false, err
+	}
+	return status.IsClean(), nil
+}
+
 // ResolveHash returns the string representation of the hash value for the given reference.
 func (r *Repo) ResolveHash(ref string) (string, error) {
 	log.Debugf("resolving hash in repo: %v for reference: %v", r, ref)

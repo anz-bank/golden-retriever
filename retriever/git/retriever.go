@@ -97,9 +97,10 @@ type AuthOptions struct {
 }
 
 type SetOpts struct {
-	Fetch SetOptFetch // How to fetch (or not) content from remote repositories.
-	Reset SetOptReset // How to reset (or not) the state of repositories.
-	Depth int
+	Fetch  SetOptFetch // How to fetch (or not) content from remote repositories.
+	Reset  SetOptReset // How to reset (or not) the state of repositories.
+	Depth  int         // The depth at which to fetch remote content (if required).
+	Verify bool        // True to verify the repository is already at the requested reference (returning an error if it's not).
 }
 
 // SetOptFetch describes how the Session.Set fetches content from remote repositories.
@@ -115,8 +116,8 @@ const (
 type SetOptReset int
 
 const (
-	SetOptResetTrue       SetOptReset = iota // Reset the repository (even if it's already at the requested resource).
-	SetOptResetOnCheckout                    // Reset the repository if it is being checked out to a different resource.
+	SetOptResetTrue       SetOptReset = iota // Reset the repository (even if it's already at the requested reference).
+	SetOptResetOnCheckout                    // Reset the repository if it is being checked out to a different reference.
 	SetOptResetFalse                         // Don't reset the repository (but still attempt a checkout without resetting if required).
 )
 
@@ -129,7 +130,7 @@ type SetResult struct {
 	Hash string // The hash that the repository was set to.
 }
 
-// Set the repository to the given resource reference, resetting as necessary.
+// Set the repository to the given reference, resetting as necessary.
 //
 // This method behaves in the following manner:
 // 1. If the repository doesn't exist, it is cloned and set to the requested reference.
@@ -140,11 +141,9 @@ type SetResult struct {
 // The following reference types are supported:
 // 1. Branches:         e.g. main
 // 2. Hashes:      		e.g. 1e7c4cecaaa8f76e3c668cebc411f1b03171501f
-// 3. Tags:         	e.g. v0.0.1
-// 4. Prefixed tags:    e.g. tags/v0.0.1 [legacy behaviour]
-//
-// The following reference types are not supported:
-// 1. Short hashes:     e.g. 1e7c4cec
+// 3. Short hashes:     e.g. 1e7c4cec
+// 4. Tags:         	e.g. v0.0.1
+// 5. Prefixed tags:    e.g. tags/v0.0.1 [legacy behaviour]
 func (a Git) Set(ctx context.Context, repo, ref string, opts SetOpts) (*SetResult, error) {
 	log.Debugf("setting repo: %v to reference: %v with opts: %v", repo, ref, opts)
 	select {
@@ -164,6 +163,9 @@ func (a Git) Set(ctx context.Context, repo, ref string, opts SetOpts) (*SetResul
 		if !ok {
 			if opts.Fetch == SetOptFetchFalse {
 				return nil, fmt.Errorf("repository: %v doesn't exist and fetch was explicitly false", repo)
+			}
+			if opts.Verify {
+				return nil, fmt.Errorf("repository: %v was asked to be verified at reference: %v but doesn't exist", repo, ref)
 			}
 			r, err := a.CloneRepo(ctx, repo, CloneOpts{
 				Depth: opts.Depth,
@@ -250,6 +252,27 @@ func (a Git) Set(ctx context.Context, repo, ref string, opts SetOpts) (*SetResul
 		refHash, err = r.ResolveHash(ref)
 		if err != nil {
 			return nil, fmt.Errorf("error resolving hash for reference: %v: %w", ref, err)
+		}
+
+		// Handle the case where verification was requested.
+		if opts.Verify {
+			if headHash != refHash {
+				return nil, fmt.Errorf("repository: %v was asked to be verified at reference: %v[%v] but was at: %v", repo, ref, refHash, headHash)
+			}
+			if opts.Reset != SetOptResetTrue {
+				log.Debugf("taking no action, repo: %v verified to be at reference: %v and reset not requested", r, ref)
+				return &SetResult{Hash: headHash}, nil
+			}
+			clean, err := r.IsClean()
+			if err != nil {
+				return nil, fmt.Errorf("error checking clean status: %w", err)
+			}
+			if clean {
+				log.Debugf("taking no action, repo: %v verified to be at reference: %v and reset not required because repository is clean", r, ref)
+				return &SetResult{Hash: headHash}, nil
+			} else {
+				return nil, fmt.Errorf("repository: %v verified to be at reference: %v but requested reset would modify contents", repo, ref)
+			}
 		}
 
 		// Return if we're already at the requested reference, and resetting isn't requested.

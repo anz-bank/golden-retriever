@@ -9,7 +9,7 @@ import (
 )
 
 // Verify setting the repository using the various supported reference types (branch, tag, hash) sets the content.
-func TestGitSession_SetReferenceTypes(t *testing.T) {
+func TestGitSession_Set_ReferenceTypes(t *testing.T) {
 	tmp := t.TempDir()
 	cacher := NewPlainFscache(tmp)
 	g := NewWithCache(nil, cacher)
@@ -58,7 +58,7 @@ func TestGitSession_SetReferenceTypes(t *testing.T) {
 }
 
 // Verify setting the repository to a specific hash sets the content.
-func TestGitSession_SetHash(t *testing.T) {
+func TestGitSession_Set_Hash(t *testing.T) {
 	tmp := t.TempDir()
 	cacher := NewPlainFscache(tmp)
 	g := NewWithCache(nil, cacher)
@@ -329,7 +329,7 @@ func TestGitSession_Set_Fetch_Tag(t *testing.T) {
 }
 
 // Verify resetting the repository with additional and modified files reset the repository to the correct state.
-func TestGitSession_SetReset(t *testing.T) {
+func TestGitSession_Set_Reset(t *testing.T) {
 	tmp := t.TempDir()
 	cacher := NewPlainFscache(tmp)
 	g := NewWithCache(nil, cacher)
@@ -395,7 +395,7 @@ func TestGitSession_SetReset(t *testing.T) {
 }
 
 // Verify resetting the repository on the first time during the session.
-func TestGitSession_SetReset_First(t *testing.T) {
+func TestGitSession_Set_Reset_First(t *testing.T) {
 	tmp := t.TempDir()
 	cacher := NewPlainFscache(tmp)
 	g := NewWithCache(nil, cacher)
@@ -480,7 +480,7 @@ func TestGitSession_SetReset_First(t *testing.T) {
 }
 
 // Verify resetting the repository on checkout during the session.
-func TestGitSession_SetReset_OnCheckout(t *testing.T) {
+func TestGitSession_Set_Reset_OnCheckout(t *testing.T) {
 	tmp := t.TempDir()
 	cacher := NewPlainFscache(tmp)
 	g := NewWithCache(nil, cacher)
@@ -553,4 +553,69 @@ func TestGitSession_SetReset_OnCheckout(t *testing.T) {
 	// Set the repository to a different reference, without resetting (which should result in an error because there are unstaged changes).
 	err = session.Set(context.Background(), pubRepo, pubRepoV2SHA, SessionSetOpts{Reset: SessionSetOptResetFalse, Verbose: true})
 	require.Error(t, err)
+}
+
+// Verify the current state of the repository within the session.
+func TestGitSession_Set_Verify(t *testing.T) {
+	tmp := t.TempDir()
+	cacher := NewPlainFscache(tmp)
+	g := NewWithCache(nil, cacher)
+	repoDir := cacher.RepoDir(pubRepo)
+	session := NewSession(g)
+
+	// Verify the state of a non-existent repository (using a throwaway session).
+	err := NewSession(g).Set(context.Background(), pubRepo, pubRepoV2SHA, SessionSetOpts{Verify: true})
+	require.ErrorContains(t, err, "was asked to be verified at reference")
+	require.ErrorContains(t, err, "but doesn't exist")
+
+	// Retrieve the repository.
+	err = session.Set(context.Background(), pubRepo, pubRepoV2SHA, SessionSetOpts{})
+	require.NoError(t, err)
+
+	// Verify the content of the repository.
+	modifiedFileName := "README.md"
+	file, err := os.ReadFile(filepath.Join(repoDir, modifiedFileName))
+	require.NoError(t, err)
+	require.Equal(t, pubRepoV2Content, string(file))
+
+	// Verify the repository is set to the requested reference.
+	err = session.Set(context.Background(), pubRepo, pubRepoV2SHA, SessionSetOpts{Verify: true})
+	require.NoError(t, err)
+
+	// Verify the repository is not set to a different reference.
+	err = session.Set(context.Background(), pubRepo, pubRepoV1SHA, SessionSetOpts{Verify: true})
+	require.ErrorContains(t, err, "was asked to be verified")
+	require.ErrorContains(t, err, "but was at")
+
+	// Modify an existing file.
+	modifiedFileContent := "The Cat in the Hat"
+	err = os.WriteFile(filepath.Join(repoDir, modifiedFileName), []byte(modifiedFileContent), 0666)
+	require.NoError(t, err)
+
+	// Verify the content of the modified file.
+	file, err = os.ReadFile(filepath.Join(repoDir, modifiedFileName))
+	require.NoError(t, err)
+	require.Equal(t, modifiedFileContent, string(file))
+
+	// Verify the repository is still set to the requested reference.
+	err = session.Set(context.Background(), pubRepo, pubRepoV2SHA, SessionSetOpts{Verify: true})
+	require.NoError(t, err)
+
+	// Verify the modified file is unchanged.
+	file, err = os.ReadFile(filepath.Join(repoDir, modifiedFileName))
+	require.NoError(t, err)
+	require.Equal(t, modifiedFileContent, string(file))
+
+	// Verify the repository is set to the reference, but resetting would modify.
+	err = session.Set(context.Background(), pubRepo, pubRepoV2SHA, SessionSetOpts{Verify: true, Reset: SessionSetOptResetTrue})
+	require.ErrorContains(t, err, "verified to be at reference")
+	require.ErrorContains(t, err, "but requested reset would modify contents")
+
+	// Return the modified file to its original state.
+	err = os.WriteFile(filepath.Join(repoDir, modifiedFileName), []byte(pubRepoV2Content), 0666)
+	require.NoError(t, err)
+
+	// Verify the repository is set to the reference, and no reset is required.
+	err = session.Set(context.Background(), pubRepo, pubRepoV2SHA, SessionSetOpts{Verify: true, Reset: SessionSetOptResetTrue})
+	require.NoError(t, err)
 }

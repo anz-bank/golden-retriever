@@ -428,6 +428,9 @@ type SessionSetOpts struct {
 	// The depth at which content should be fetched.
 	Depth int
 
+	// True to verify the repository is already at the requested reference (returning an error if it's not).
+	Verify bool
+
 	// Whether verbose (i.e. debug level) logs should be written when interacting with the session.
 	Verbose bool
 }
@@ -535,7 +538,7 @@ func (s sessionImpl) Set(ctx context.Context, repo string, ref string, opts Sess
 		}
 
 		// Set the reference.
-		result, err := s.g.Set(ctx, repo, ref, SetOpts{Fetch: fetch, Reset: reset, Depth: opts.Depth})
+		result, err := s.g.Set(ctx, repo, ref, SetOpts{Fetch: fetch, Reset: reset, Depth: opts.Depth, Verify: opts.Verify})
 		if err != nil {
 			return err
 		}
