@@ -445,6 +445,21 @@ const (
 	SessionSetOptFetchFalse                             // Don't fetch remote content.
 )
 
+func (f SessionSetOptFetch) String() string {
+	switch f {
+	case SessionSetOptFetchFirst:
+		return "first"
+	case SessionSetOptFetchUnknown:
+		return "unknown"
+	case SessionSetOptFetchTrue:
+		return "true"
+	case SessionSetOptFetchFalse:
+		return "false"
+	default:
+		return "-"
+	}
+}
+
 // SessionSetOptReset describes how the Session.Set resets the state of repositories.
 type SessionSetOptReset int
 
@@ -454,6 +469,21 @@ const (
 	SessionSetOptResetTrue                                 // Reset the repository.
 	SessionSetOptResetFalse                                // Don't reset the repository.
 )
+
+func (f SessionSetOptReset) String() string {
+	switch f {
+	case SessionSetOptResetFirst:
+		return "first"
+	case SessionSetOptResetOnCheckout:
+		return "on-checkout"
+	case SessionSetOptResetTrue:
+		return "true"
+	case SessionSetOptResetFalse:
+		return "false"
+	default:
+		return "-"
+	}
+}
 
 type sessionImpl struct {
 	once   once.Once
@@ -538,7 +568,11 @@ func (s sessionImpl) Set(ctx context.Context, repo string, ref string, opts Sess
 		}
 
 		// Set the reference.
-		result, err := s.g.Set(ctx, repo, ref, SetOpts{Fetch: fetch, Reset: reset, Depth: opts.Depth, Verify: opts.Verify})
+		result, err := s.g.Set(ctx, repo, ref, SetOpts{
+			Fetch:  fetch,
+			Reset:  reset,
+			Depth:  opts.Depth,
+			Verify: opts.Verify})
 		if err != nil {
 			return err
 		}

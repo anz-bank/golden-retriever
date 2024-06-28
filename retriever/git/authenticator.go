@@ -26,6 +26,17 @@ func (None) AuthMethod(repo string) (transport.AuthMethod, string) {
 	return nil, HTTPSURL(repo)
 }
 
+// Local implements the Authenticator interface. It is typically used to fetch local repositories.
+type Local struct{}
+
+// Name returns the name of the auth method.
+func (Local) Name() string { return "Local" }
+
+// AuthMethod returns the AuthMethod and corresponding git repository URL.
+func (Local) AuthMethod(repo string) (transport.AuthMethod, string) {
+	return nil, repo // i.e. dir
+}
+
 // SSHAgent implements the Authenticator interface.
 type SSHAgent struct {
 	authMethod transport.AuthMethod

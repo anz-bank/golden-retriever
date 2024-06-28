@@ -1,9 +1,14 @@
 package git
 
 import (
+	"bytes"
 	"context"
+	"fmt"
+	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
@@ -618,4 +623,247 @@ func TestGitSession_Set_Verify(t *testing.T) {
 	// Verify the repository is set to the reference, and no reset is required.
 	err = session.Set(context.Background(), pubRepo, pubRepoV2SHA, SessionSetOpts{Verify: true, Reset: SessionSetOptResetTrue})
 	require.NoError(t, err)
+}
+
+// Verify requesting different fetch behaviours within the session.
+func TestGitSession_Set_Fetch(t *testing.T) {
+	tmp := t.TempDir()
+	cacher := NewPlainFscache(tmp)
+	g := NewWithCache(nil, cacher)
+	repoDir := cacher.RepoDir(pubRepo)
+
+	// Create a buffer to store the logs for the test.
+	// For simplicity of testing, we inspect the logs to infer test behaviour.
+	buffer := bytes.NewBuffer(make([]byte, 0))
+	log.SetLevel(log.DebugLevel)
+	log.SetOutput(buffer)
+
+	// Retrieve the repository at a named branch.
+	err := NewSession(g).Set(context.Background(), pubRepo, pubRepoMainBranch, SessionSetOpts{Depth: 0})
+	require.NoError(t, err)
+
+	// Verify the content of the repository.
+	file, err := os.ReadFile(filepath.Join(repoDir, "README.md"))
+	require.NoError(t, err)
+	require.Equal(t, pubRepoMainContent, string(file))
+
+	// In an out-of-band process, move the head to a different commit.
+	err = execute(repoDir, "git", "reset", "--hard", pubRepoV1SHA)
+	require.NoError(t, err)
+
+	// Verify the content of the repository.
+	file, err = os.ReadFile(filepath.Join(repoDir, "README.md"))
+	require.NoError(t, err)
+	require.Equal(t, pubRepoV1Content, string(file))
+
+	// Clear the log buffer.
+	buffer.Reset()
+
+	// Set the repository to the named branch again without fetching. Use a new session to avoid the cached hash.
+	// Note: The repository should not be fetched because it was requested not to be.
+	err = NewSession(g).Set(context.Background(), pubRepo, pubRepoMainBranch, SessionSetOpts{Fetch: SessionSetOptFetchFalse})
+	require.NoError(t, err)
+
+	// Verify that no fetch was performed.
+	assert.NotContains(t, buffer.String(), "fetching")
+
+	// Verify the content of the repository.
+	file, err = os.ReadFile(filepath.Join(repoDir, "README.md"))
+	require.NoError(t, err)
+	require.Equal(t, pubRepoMainContent, string(file))
+
+	// In an out-of-band process, move the head to a different commit.
+	err = execute(repoDir, "git", "reset", "--hard", pubRepoV1SHA)
+	require.NoError(t, err)
+
+	// Verify the content of the repository.
+	file, err = os.ReadFile(filepath.Join(repoDir, "README.md"))
+	require.NoError(t, err)
+	require.Equal(t, pubRepoV1Content, string(file))
+
+	// Clear the log buffer.
+	buffer.Reset()
+
+	// Set the repository to the named branch again with fetching. Use a new session to avoid the cached hash.
+	// Note: The repository should be fetched because it was requested to be, and the reference is not a hash.
+	err = NewSession(g).Set(context.Background(), pubRepo, pubRepoMainBranch, SessionSetOpts{Fetch: SessionSetOptFetchTrue})
+	require.NoError(t, err)
+
+	// Verify that a fetch was performed.
+	assert.Contains(t, buffer.String(), fmt.Sprintf("fetching ref: %v", pubRepoMainBranch))
+
+	// Verify the content of the repository.
+	file, err = os.ReadFile(filepath.Join(repoDir, "README.md"))
+	require.NoError(t, err)
+	require.Equal(t, pubRepoMainContent, string(file))
+
+	// In an out-of-band process, move the head to a different commit.
+	err = execute(repoDir, "git", "reset", "--hard", pubRepoV1SHA)
+	require.NoError(t, err)
+
+	// Verify the content of the repository.
+	file, err = os.ReadFile(filepath.Join(repoDir, "README.md"))
+	require.NoError(t, err)
+	require.Equal(t, pubRepoV1Content, string(file))
+
+	// Clear the log buffer.
+	buffer.Reset()
+
+	// Set the repository to the named branch again with fetching if unknown. Use a new session to avoid the cached hash.
+	// Note: The repository should not be fetched because the branch reference (main) is already known.
+	err = NewSession(g).Set(context.Background(), pubRepo, pubRepoMainBranch, SessionSetOpts{Fetch: SessionSetOptFetchUnknown})
+	require.NoError(t, err)
+
+	// Verify that no fetch was performed.
+	assert.NotContains(t, buffer.String(), "fetching")
+
+	// Verify the content of the repository.
+	file, err = os.ReadFile(filepath.Join(repoDir, "README.md"))
+	require.NoError(t, err)
+	require.Equal(t, pubRepoMainContent, string(file))
+
+	// In an out-of-band process, move the head to a different commit.
+	err = execute(repoDir, "git", "reset", "--hard", pubRepoV1SHA)
+	require.NoError(t, err)
+
+	// Verify the content of the repository.
+	file, err = os.ReadFile(filepath.Join(repoDir, "README.md"))
+	require.NoError(t, err)
+	require.Equal(t, pubRepoV1Content, string(file))
+
+	// Clear the log buffer.
+	buffer.Reset()
+
+	// Set the repository to the hash of the named branch with fetching true. Use a new session to avoid the cached hash.
+	// Note: The repository should not be fetched because the hash reference is already known.
+	err = NewSession(g).Set(context.Background(), pubRepo, pubRepoMainSHA, SessionSetOpts{Fetch: SessionSetOptFetchTrue})
+	require.NoError(t, err)
+
+	// Verify that no fetch was performed.
+	assert.NotContains(t, buffer.String(), "fetching")
+
+	// Verify the content of the repository.
+	file, err = os.ReadFile(filepath.Join(repoDir, "README.md"))
+	require.NoError(t, err)
+	require.Equal(t, pubRepoMainContent, string(file))
+
+	// In an out-of-band process, move the head to a different commit.
+	err = execute(repoDir, "git", "reset", "--hard", pubRepoV1SHA)
+	require.NoError(t, err)
+
+	// Verify the content of the repository.
+	file, err = os.ReadFile(filepath.Join(repoDir, "README.md"))
+	require.NoError(t, err)
+	require.Equal(t, pubRepoV1Content, string(file))
+
+	// Clear the log buffer.
+	buffer.Reset()
+
+	// Set the repository to the short hash of the named branch with fetching true. Use a new session to avoid the cached hash.
+	// Note: The repository should not be fetched because the (short) hash reference is already known.
+	err = NewSession(g).Set(context.Background(), pubRepo, pubRepoMainSHA[0:8], SessionSetOpts{Fetch: SessionSetOptFetchTrue})
+	require.NoError(t, err)
+
+	// Verify that no fetch was performed.
+	assert.NotContains(t, buffer.String(), "fetching")
+
+	// Verify the content of the repository.
+	file, err = os.ReadFile(filepath.Join(repoDir, "README.md"))
+	require.NoError(t, err)
+	require.Equal(t, pubRepoMainContent, string(file))
+}
+
+// Verify that fetching a reference in a remote repository that has changed is updated correctly.
+func TestGitSession_Set_Fetch_Remote_Updated(t *testing.T) {
+
+	// Construct a "remote" repository in the local file system, initialised with the contents of an actual remote repository.
+	remoteCacher := NewPlainFscache(t.TempDir())
+	remoteGit := NewWithCache(nil, remoteCacher)
+	remoteRepoDir := remoteCacher.RepoDir(pubRepo)
+	remoteRepo := remoteRepoDir
+	err := NewSession(remoteGit).Set(context.Background(), pubRepo, pubRepoMainBranch, SessionSetOpts{Depth: 0})
+	assert.NoError(t, err)
+
+	// Clone the repository under test from the "remote" repository.
+	// Note: Setting the shared value during the initial clone is sufficient to continue interacting with a local remote repository.
+	cacher := NewPlainFscache(t.TempDir())
+	g := NewWithCache(&AuthOptions{Local: true}, cacher)
+	repoDir := cacher.RepoDir(remoteRepoDir)
+	//_, err = g.CloneRepo(context.Background(), remoteRepo, CloneOpts{Shared: true})
+	//assert.NoError(t, err)
+
+	// Create a buffer to store the logs for the test.
+	// For simplicity of testing, we inspect the logs to infer test behaviour.
+	buffer := bytes.NewBuffer(make([]byte, 0))
+	log.SetLevel(log.DebugLevel)
+	log.SetOutput(buffer)
+
+	// Retrieve the repository at a named branch.
+	err = NewSession(g).Set(context.Background(), remoteRepo, pubRepoMainBranch, SessionSetOpts{Depth: 0})
+	require.NoError(t, err)
+
+	// Verify the content of the repository.
+	file, err := os.ReadFile(filepath.Join(repoDir, "README.md"))
+	require.NoError(t, err)
+	require.Equal(t, pubRepoMainContent, string(file))
+
+	// In an out-of-band process, add a new commit to the remote repository.
+	modifiedFileName := "README.md"
+	modifiedFileContent := "The Cat in the Hat"
+	err = os.WriteFile(filepath.Join(remoteRepoDir, modifiedFileName), []byte(modifiedFileContent), 0666)
+	require.NoError(t, err)
+	err = execute(remoteRepoDir, "git", "checkout", pubRepoMainBranch)
+	require.NoError(t, err)
+	err = execute(remoteRepoDir, "git", "add", ".")
+	require.NoError(t, err)
+	err = execute(remoteRepoDir, "git", "commit", "-m", "Change One")
+	require.NoError(t, err)
+
+	// Clear the log buffer.
+	buffer.Reset()
+
+	// Set the repository to the named branch again without fetching. Use a new session to avoid the cached hash.
+	// Note: The repository should not be fetched because it was requested not to be.
+	err = NewSession(g).Set(context.Background(), remoteRepo, pubRepoMainBranch, SessionSetOpts{Fetch: SessionSetOptFetchFalse})
+	require.NoError(t, err)
+
+	// Verify that no fetch was performed.
+	assert.NotContains(t, buffer.String(), "fetching")
+
+	// Verify the content of the repository is unchanged.
+	file, err = os.ReadFile(filepath.Join(repoDir, "README.md"))
+	require.NoError(t, err)
+	require.Equal(t, pubRepoMainContent, string(file))
+
+	// Clear the log buffer.
+	buffer.Reset()
+
+	// Set the repository to the named branch again with fetching. Use a new session to avoid the cached hash.
+	// Note: The repository should be fetched because it was requested to be, and the reference is not a hash.
+	err = NewSession(g).Set(context.Background(), remoteRepo, pubRepoMainBranch, SessionSetOpts{Fetch: SessionSetOptFetchTrue})
+	require.NoError(t, err)
+
+	// Verify that a fetch was performed.
+	assert.Contains(t, buffer.String(), fmt.Sprintf("fetching ref: %v", pubRepoMainBranch))
+
+	// Verify the content of the repository has been updated.
+	file, err = os.ReadFile(filepath.Join(repoDir, "README.md"))
+	require.NoError(t, err)
+	require.Equal(t, modifiedFileContent, string(file))
+}
+
+// execute the given command.
+func execute(dir string, name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if len(out) != 0 {
+		fmt.Print(string(out))
+	}
+	switch err.(type) {
+	case *exec.ExitError:
+		return fmt.Errorf("error executing command %v %v %v",
+			args, string(err.(*exec.ExitError).Stderr), err)
+	}
+	return err
 }

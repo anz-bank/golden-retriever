@@ -3,6 +3,7 @@ package git
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -76,6 +77,10 @@ func NewWithOptions(options *NewGitOptions) *Git {
 
 	methods = append(methods, None{})
 
+	if options.AuthOptions != nil && options.AuthOptions.Local {
+		methods = append(methods, Local{})
+	}
+
 	return &Git{
 		authMethods: methods,
 		cacher:      options.Cacher,
@@ -94,6 +99,8 @@ type AuthOptions struct {
 	Tokens map[string]string
 	// SSHKeys is a key-value pairs of <host>, <private key + key password>, e.g. { "github.com": {"private_key": "~/.ssh/id_rsa_github", "private_key_password": ""} }
 	SSHKeys map[string]SSHKey
+	// True if authentication to a local repository should be included in the available methods.
+	Local bool
 }
 
 type SetOpts struct {
@@ -112,6 +119,19 @@ const (
 	SetOptFetchFalse                      // Don't fetch remote content.
 )
 
+func (f SetOptFetch) String() string {
+	switch f {
+	case SetOptFetchTrue:
+		return "true"
+	case SetOptFetchUnknown:
+		return "unknown"
+	case SetOptFetchFalse:
+		return "false"
+	default:
+		return "-"
+	}
+}
+
 // SetOptReset describes how Git.Set resets the state of repositories.
 type SetOptReset int
 
@@ -120,6 +140,19 @@ const (
 	SetOptResetOnCheckout                    // Reset the repository if it is being checked out to a different reference.
 	SetOptResetFalse                         // Don't reset the repository (but still attempt a checkout without resetting if required).
 )
+
+func (f SetOptReset) String() string {
+	switch f {
+	case SetOptResetTrue:
+		return "true"
+	case SetOptResetOnCheckout:
+		return "on-checkout"
+	case SetOptResetFalse:
+		return "false"
+	default:
+		return "-"
+	}
+}
 
 func (o SetOpts) String() string {
 	return fmt.Sprintf("{Fetch:%v, Reset:%v, Depth:%v}",
@@ -226,10 +259,10 @@ func (a Git) Set(ctx context.Context, repo, ref string, opts SetOpts) (*SetResul
 		// Cache whether to fetch from the remote repository.
 		fetch := false
 		switch opts.Fetch {
-		case SetOptFetchFalse:
+		case SetOptFetchFalse: // no-op: fetch = false
 		case SetOptFetchTrue:
-			if headHash == refHash {
-				log.Debugf("ignoring fetch, repository at requested hash: %v", refHash)
+			if strings.HasPrefix(refHash, ref) {
+				log.Debugf("ignoring fetch, requested hash reference: %v already known", ref)
 			} else {
 				fetch = true
 			}
