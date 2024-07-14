@@ -5,16 +5,17 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/anz-bank/golden-retriever/once"
-	"github.com/anz-bank/golden-retriever/retriever"
-
 	"github.com/go-git/go-billy/v5/memfs"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/proxy"
+
+	"github.com/anz-bank/golden-retriever/once"
+	"github.com/anz-bank/golden-retriever/retriever"
 )
 
 func init() {
@@ -141,6 +142,21 @@ const (
 	FetchOptTagsFollowing                // Fetch any tag that points into the histories being fetched.
 	FetchOptTagsNone                     // Don't fetch tags.
 )
+
+func (t OptTags) String() string {
+	switch t {
+	case FetchOptTagsDefault:
+		return "default"
+	case FetchOptTagsAll:
+		return "all"
+	case FetchOptTagsFollowing:
+		return "following"
+	case FetchOptTagsNone:
+		return "none"
+	default:
+		return "-"
+	}
+}
 
 func (t OptTags) TagMode(def git.TagMode) git.TagMode {
 	switch t {
@@ -407,23 +423,29 @@ func (a Git) TryResolveAsTag(r *git.Repository, resource *retriever.Resource) bo
 // the remote 'main' branch, then subsequent requests within the same session to set the repository to the remote 'main'
 // branch are guaranteed to set the repository to the same state, even if the 'main' branch on the remote repository has
 // changed since it was first retrieved.
+//
+// The following reference types are supported:
+// 1. Branches:         e.g. main
+// 2. Hashes:      		e.g. 1e7c4cecaaa8f76e3c668cebc411f1b03171501f
+// 3. Short hashes:     e.g. 1e7c4cec
+// 4. Tags:         	e.g. v0.0.1
+// 5. Prefixed tags:    e.g. tags/v0.0.1 [legacy behaviour]
 type Session interface {
-	// Set the content of the repository to the given origin reference.
-	// The reference (ref) can be one of the following formats:
-	// 1. Branch name: e.g. main
-	// 2. Tag name: e.g. tags/t
-	// 3. Hash: e.g. 865e3e5c6fca0120285c3aa846fdb049f8f074e6
+	// Set the repository to the given reference, resetting as necessary.
 	Set(ctx context.Context, repo string, ref string, opts SessionSetOpts) error
+
+	// Resolve the commit of the given reference within the repository.
+	Resolve(ctx context.Context, repo string, ref string, opts SessionResolveOpts) (*object.Commit, error)
 }
 
-// SessionSetOpts provide configuration to the Session.Set
+// SessionSetOpts provide configuration to the Session.Set method.
 type SessionSetOpts struct {
 
 	// How to fetch (or not) content from remote repositories.
-	Fetch SessionSetOptFetch
+	Fetch SessionOptFetch
 
 	// How to reset (or not) the state of repositories.
-	Reset SessionSetOptReset
+	Reset SessionOptReset
 
 	// The depth at which content should be fetched.
 	Depth int
@@ -435,50 +457,63 @@ type SessionSetOpts struct {
 	Verbose bool
 }
 
-// SessionSetOptFetch describes how the Session.Set fetches from remote repositories.
-type SessionSetOptFetch int
+// SessionResolveOpts provide configuration to the Session.Resolve method.
+type SessionResolveOpts struct {
+
+	// How to fetch (or not) content from remote repositories.
+	Fetch SessionOptFetch
+
+	// The depth at which content should be fetched.
+	Depth int
+
+	// Whether verbose (i.e. debug level) logs should be written when interacting with the session.
+	Verbose bool
+}
+
+// SessionOptFetch describes how to fetch from remote repositories.
+type SessionOptFetch int
 
 const (
-	SessionSetOptFetchFirst   SessionSetOptFetch = iota // Fetch remote content for a reference if it is the first time the reference is set during the session, otherwise don't fetch.
-	SessionSetOptFetchUnknown                           // Fetch remote reference if the reference is unknown to the local repository.
-	SessionSetOptFetchTrue                              // Fetch remote content.
-	SessionSetOptFetchFalse                             // Don't fetch remote content.
+	SessionOptFetchFirst   SessionOptFetch = iota // Fetch remote content for a reference if it is the first time the reference is set during the session, otherwise don't fetch.
+	SessionOptFetchUnknown                        // Fetch remote reference if the reference is unknown to the local repository.
+	SessionOptFetchTrue                           // Fetch remote content.
+	SessionOptFetchFalse                          // Don't fetch remote content.
 )
 
-func (f SessionSetOptFetch) String() string {
+func (f SessionOptFetch) String() string {
 	switch f {
-	case SessionSetOptFetchFirst:
+	case SessionOptFetchFirst:
 		return "first"
-	case SessionSetOptFetchUnknown:
+	case SessionOptFetchUnknown:
 		return "unknown"
-	case SessionSetOptFetchTrue:
+	case SessionOptFetchTrue:
 		return "true"
-	case SessionSetOptFetchFalse:
+	case SessionOptFetchFalse:
 		return "false"
 	default:
 		return "-"
 	}
 }
 
-// SessionSetOptReset describes how the Session.Set resets the state of repositories.
-type SessionSetOptReset int
+// SessionOptReset describes how to reset the state of repositories.
+type SessionOptReset int
 
 const (
-	SessionSetOptResetFirst      SessionSetOptReset = iota // Reset the repository if it is the first time it is set during the session, otherwise reset on checkout.
-	SessionSetOptResetOnCheckout                           // Reset the repository if it is being checked out to a different resource.
-	SessionSetOptResetTrue                                 // Reset the repository.
-	SessionSetOptResetFalse                                // Don't reset the repository.
+	SessionOptResetFirst      SessionOptReset = iota // Reset the repository if it is the first time it is set during the session, otherwise reset on checkout.
+	SessionOptResetOnCheckout                        // Reset the repository if it is being checked out to a different resource.
+	SessionOptResetTrue                              // Reset the repository.
+	SessionOptResetFalse                             // Don't reset the repository.
 )
 
-func (f SessionSetOptReset) String() string {
+func (f SessionOptReset) String() string {
 	switch f {
-	case SessionSetOptResetFirst:
+	case SessionOptResetFirst:
 		return "first"
-	case SessionSetOptResetOnCheckout:
+	case SessionOptResetOnCheckout:
 		return "on-checkout"
-	case SessionSetOptResetTrue:
+	case SessionOptResetTrue:
 		return "true"
-	case SessionSetOptResetFalse:
+	case SessionOptResetFalse:
 		return "false"
 	default:
 		return "-"
@@ -499,9 +534,24 @@ func NewSession(g *Git) Session {
 }
 
 func (s sessionImpl) Set(ctx context.Context, repo string, ref string, opts SessionSetOpts) error {
+	_, err := s.set(ctx, repo, ref, opts.Fetch, opts.Reset, OptCheckoutTrue, opts.Depth, opts.Verify, opts.Verbose)
+	return err
+}
+
+func (s sessionImpl) Resolve(ctx context.Context, repo string, ref string, opts SessionResolveOpts) (*object.Commit, error) {
+	result, err := s.set(ctx, repo, ref, opts.Fetch, SessionOptResetFalse, OptCheckoutFalse, opts.Depth, false, opts.Verbose)
+	if err != nil {
+		return nil, err
+	}
+	return result.Commit, nil
+}
+
+func (s sessionImpl) set(ctx context.Context, repo string, ref string,
+	optFetch SessionOptFetch, optReset SessionOptReset,
+	optCheckout OptCheckout, optDepth int, optVerify bool, optVerbose bool) (*SetResult, error) {
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		return nil, ctx.Err()
 	default:
 		key := repo + "@" + ref
 		ch := s.once.Register(key)
@@ -513,7 +563,7 @@ func (s sessionImpl) Set(ctx context.Context, repo string, ref string, opts Sess
 		// Maintain legacy behaviour.
 		ref = strings.TrimPrefix(ref, "tags/")
 
-		if opts.Verbose {
+		if optVerbose {
 			level := log.GetLevel()
 			log.SetLevel(log.DebugLevel)
 			defer func() { log.SetLevel(level) }()
@@ -532,51 +582,52 @@ func (s sessionImpl) Set(ctx context.Context, repo string, ref string, opts Sess
 		}
 
 		// Cache the fetch behaviour.
-		var fetch SetOptFetch
-		switch opts.Fetch {
-		case SessionSetOptFetchFirst:
-			fetch = SetOptFetchTrue
+		var fetch OptFetch
+		switch optFetch {
+		case SessionOptFetchFirst:
+			fetch = OptFetchTrue
 			if hasSessionRefHash { // Don't fetch, it's not the first time the reference has been set within the session.
-				fetch = SetOptFetchFalse
+				fetch = OptFetchFalse
 			}
-		case SessionSetOptFetchUnknown:
-			fetch = SetOptFetchUnknown
-		case SessionSetOptFetchFalse:
-			fetch = SetOptFetchFalse
-		case SessionSetOptFetchTrue:
-			fetch = SetOptFetchTrue
+		case SessionOptFetchUnknown:
+			fetch = OptFetchUnknown
+		case SessionOptFetchFalse:
+			fetch = OptFetchFalse
+		case SessionOptFetchTrue:
+			fetch = OptFetchTrue
 		default:
-			return fmt.Errorf("invalid fetch option: %v", opts.Fetch)
+			return nil, fmt.Errorf("invalid fetch option: %v", optFetch)
 		}
 
 		// Cache the reset behaviour.
-		var reset SetOptReset
-		switch opts.Reset {
-		case SessionSetOptResetFirst:
-			reset = SetOptResetTrue
+		var reset OptReset
+		switch optReset {
+		case SessionOptResetFirst:
+			reset = OptResetTrue
 			if !first { // Reset on checkout, it's not the first time a reference has been set within the session.
-				reset = SetOptResetOnCheckout
+				reset = OptResetOnCheckout
 			}
-		case SessionSetOptResetOnCheckout:
-			reset = SetOptResetOnCheckout
-		case SessionSetOptResetFalse:
-			reset = SetOptResetFalse
-		case SessionSetOptResetTrue:
-			reset = SetOptResetTrue
+		case SessionOptResetOnCheckout:
+			reset = OptResetOnCheckout
+		case SessionOptResetFalse:
+			reset = OptResetFalse
+		case SessionOptResetTrue:
+			reset = OptResetTrue
 		default:
-			return fmt.Errorf("invalid reset option: %v", opts.Reset)
+			return nil, fmt.Errorf("invalid reset option: %v", optReset)
 		}
 
 		// Set the reference.
 		result, err := s.g.Set(ctx, repo, ref, SetOpts{
-			Fetch:  fetch,
-			Reset:  reset,
-			Depth:  opts.Depth,
-			Verify: opts.Verify})
+			Fetch:    fetch,
+			Reset:    reset,
+			Depth:    optDepth,
+			Verify:   optVerify,
+			Checkout: optCheckout})
 		if err != nil {
-			return err
+			return nil, err
 		}
-		s.hashes[key] = result.Hash
-		return nil
+		s.hashes[key] = result.Commit.Hash.String()
+		return result, nil
 	}
 }

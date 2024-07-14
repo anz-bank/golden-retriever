@@ -3,9 +3,13 @@ package git
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 
 	"github.com/anz-bank/golden-retriever/once"
 	"github.com/anz-bank/golden-retriever/retriever"
@@ -104,50 +108,70 @@ type AuthOptions struct {
 }
 
 type SetOpts struct {
-	Fetch  SetOptFetch // How to fetch (or not) content from remote repositories.
-	Reset  SetOptReset // How to reset (or not) the state of repositories.
-	Depth  int         // The depth at which to fetch remote content (if required).
-	Verify bool        // True to verify the repository is already at the requested reference (returning an error if it's not).
+	Fetch    OptFetch    // How to fetch (or not) content from remote repositories.
+	Reset    OptReset    // How to reset (or not) the state of repositories.
+	Checkout OptCheckout // How to check out (or not) the state of repositories.
+	Depth    int         // The depth at which to fetch remote content (if required).
+	Verify   bool        // True to verify the repository is already at the requested reference (returning an error if it's not).
 }
 
-// SetOptFetch describes how the Session.Set fetches content from remote repositories.
-type SetOptFetch int
+// OptFetch describes how to fetch content from remote repositories.
+type OptFetch int
 
 const (
-	SetOptFetchTrue    SetOptFetch = iota // Fetch remote content.
-	SetOptFetchUnknown                    // Fetch remote content if the reference is unknown to the local repository.
-	SetOptFetchFalse                      // Don't fetch remote content.
+	OptFetchTrue    OptFetch = iota // Fetch remote content.
+	OptFetchUnknown                 // Fetch remote content if the reference is unknown to the local repository.
+	OptFetchFalse                   // Don't fetch remote content.
 )
 
-func (f SetOptFetch) String() string {
+func (f OptFetch) String() string {
 	switch f {
-	case SetOptFetchTrue:
+	case OptFetchTrue:
 		return "true"
-	case SetOptFetchUnknown:
+	case OptFetchUnknown:
 		return "unknown"
-	case SetOptFetchFalse:
+	case OptFetchFalse:
 		return "false"
 	default:
 		return "-"
 	}
 }
 
-// SetOptReset describes how Git.Set resets the state of repositories.
-type SetOptReset int
+// OptReset describes how to reset the state of repositories.
+type OptReset int
 
 const (
-	SetOptResetTrue       SetOptReset = iota // Reset the repository (even if it's already at the requested reference).
-	SetOptResetOnCheckout                    // Reset the repository if it is being checked out to a different reference.
-	SetOptResetFalse                         // Don't reset the repository (but still attempt a checkout without resetting if required).
+	OptResetTrue       OptReset = iota // Reset the repository (even if it's already at the requested reference).
+	OptResetOnCheckout                 // Reset the repository if it is being checked out to a different reference.
+	OptResetFalse                      // Don't reset the repository (but still attempt a checkout without resetting if required).
 )
 
-func (f SetOptReset) String() string {
+func (f OptReset) String() string {
 	switch f {
-	case SetOptResetTrue:
+	case OptResetTrue:
 		return "true"
-	case SetOptResetOnCheckout:
+	case OptResetOnCheckout:
 		return "on-checkout"
-	case SetOptResetFalse:
+	case OptResetFalse:
+		return "false"
+	default:
+		return "-"
+	}
+}
+
+// OptCheckout describes how to check out the state of repositories.
+type OptCheckout int
+
+const (
+	OptCheckoutTrue  OptCheckout = iota // Check out the repository.
+	OptCheckoutFalse                    // Don't check out the repository.
+)
+
+func (f OptCheckout) String() string {
+	switch f {
+	case OptCheckoutTrue:
+		return "true"
+	case OptCheckoutFalse:
 		return "false"
 	default:
 		return "-"
@@ -160,7 +184,7 @@ func (o SetOpts) String() string {
 }
 
 type SetResult struct {
-	Hash string // The hash that the repository was set to.
+	Commit *object.Commit // The commit that the repository was set to.
 }
 
 // Set the repository to the given reference, resetting as necessary.
@@ -170,6 +194,9 @@ type SetResult struct {
 // 2. If fetching is requested, the remote repository is fetched (at the requested depth) before the reference is resolved.
 // 3. If resetting is not requested, and the repository is already at the requested reference, no action is performed.
 // 4. Otherwise, the repository is cleaned and reset to the requested reference.
+//
+// The one caveat to the above description is if checking out is not requested. In this case, fetching is still
+// performed, but checking out (and hence any requests to reset the repository) are ignored.
 //
 // The following reference types are supported:
 // 1. Branches:         e.g. main
@@ -192,28 +219,61 @@ func (a Git) Set(ctx context.Context, repo, ref string, opts SetOpts) (*SetResul
 		// Cache the git repository object.
 		rr, ok := a.cacher.Get(repo)
 
-		// Clone and checkout the repository if it doesn't exist.
+		// Cache a function to return the set result at the given hash.
+		resultAt := func(r *Repo, hash string) (*SetResult, error) {
+			commit, err := r.r.CommitObject(plumbing.NewHash(hash))
+			if err != nil {
+				return nil, err
+			}
+			return &SetResult{Commit: commit}, nil
+		}
+
+		// Handle the case where the repository has not yet been initialised.
 		if !ok {
-			if opts.Fetch == SetOptFetchFalse {
+			if opts.Fetch == OptFetchFalse {
 				return nil, fmt.Errorf("repository: %v doesn't exist and fetch was explicitly false", repo)
 			}
 			if opts.Verify {
 				return nil, fmt.Errorf("repository: %v was asked to be verified at reference: %v but doesn't exist", repo, ref)
 			}
-			r, err := a.CloneRepo(ctx, repo, CloneOpts{
-				Depth: opts.Depth,
-				Tags:  FetchOptTagsNone,
-			})
+
+			// Initialise the repository either with a clone (if requested) or an init and fetch of the head reference.
+			// If we haven't been requested to check out the repository, then initialising it with the remote repository
+			// is sufficient. We fetch the head reference because all future interactions with the repository assume
+			// that the head reference is always known.
+			init := func() (*Repo, error) {
+				return a.CloneRepo(ctx, repo, CloneOpts{
+					Depth: opts.Depth,
+					Tags:  FetchOptTagsNone,
+				})
+			}
+			if opts.Checkout != OptCheckoutTrue {
+				init = func() (*Repo, error) {
+					r, err := a.InitWithRemote(ctx, repo)
+					if err != nil {
+						return nil, err
+					}
+					err = r.FetchRef(ctx, "HEAD", FetchOpts{
+						Depth: max(1, opts.Depth), // workaround: ref not updated if fetched with zero depth
+						Force: true,
+						Tags:  FetchOptTagsNone,
+					})
+					return r, err
+				}
+			}
+			r, err := init()
 			if err != nil {
 				return nil, fmt.Errorf("error cloning repository to reference: %v: %w", ref, err)
 			}
+
+			// Fetch the requested reference if it's not known within the repository.
 			exists, err := r.Exists(ref)
 			if err != nil {
 				return nil, fmt.Errorf("error checking existence of reference: %v: %w", ref, err)
 			}
 			if !exists {
 				err := r.FetchRefOrAll(ctx, ref, FetchOpts{
-					Depth: opts.Depth,
+					Depth: max(1, opts.Depth), // workaround: ref not updated if fetched with zero depth
 					Force: true,
 					Tags:  FetchOptTagsNone,
 				})
@@ -221,6 +281,18 @@ func (a Git) Set(ctx context.Context, repo, ref string, opts SetOpts) (*SetResul
 					return nil, fmt.Errorf("error fetching reference: %v: %w", ref, err)
 				}
 			}
+
+			// Resolve the hash of the reference if we don't need to check out the repository.
+			if opts.Checkout != OptCheckoutTrue {
+				refHash, err := r.ResolveHash(ref)
+				if err != nil {
+					return nil, fmt.Errorf("error resolving hash for reference: %v: %w", ref, err)
+				}
+				log.Debugf("checkout ignored, reference: %v resolved within repo: %v and no checkout requested", ref, r)
+				return resultAt(r, refHash)
+			}
+
+			// Checkout the repository.
 			err = r.Checkout(ref, CheckoutOpts{
 				Force: true,
 			})
@@ -231,7 +303,7 @@ func (a Git) Set(ctx context.Context, repo, ref string, opts SetOpts) (*SetResul
 			if err != nil {
 				return nil, fmt.Errorf("error resolving head hash: %w", err)
 			}
-			return &SetResult{Hash: headHash}, nil
+			return resultAt(r, headHash)
 		}
 
 		// Cache the repository object.
@@ -259,20 +331,21 @@ func (a Git) Set(ctx context.Context, repo, ref string, opts SetOpts) (*SetResul
 		// Cache whether to fetch from the remote repository.
 		fetch := false
 		switch opts.Fetch {
-		case SetOptFetchFalse: // no-op: fetch = false
-		case SetOptFetchTrue:
+		case OptFetchFalse: // no-op: fetch = false
+		case OptFetchTrue:
 			if strings.HasPrefix(refHash, ref) {
 				log.Debugf("ignoring fetch, requested hash reference: %v already known", ref)
 			} else {
 				fetch = true
 			}
-		case SetOptFetchUnknown:
+		case OptFetchUnknown:
 			fetch = !exists
 		}
 
+		// Fetch from the remote repository if required.
 		if fetch {
 			err := r.FetchRefOrAll(ctx, ref, FetchOpts{
-				Depth: opts.Depth,
+				Depth: max(1, opts.Depth), // workaround: ref not updated if fetched with zero depth
 				Force: true,
 				Tags:  FetchOptTagsNone,
 			})
@@ -292,9 +365,9 @@ func (a Git) Set(ctx context.Context, repo, ref string, opts SetOpts) (*SetResul
 			if headHash != refHash {
 				return nil, fmt.Errorf("repository: %v was asked to be verified at reference: %v[%v] but was at: %v", repo, ref, refHash, headHash)
 			}
-			if opts.Reset != SetOptResetTrue {
+			if opts.Reset != OptResetTrue {
 				log.Debugf("taking no action, repo: %v verified to be at reference: %v and reset not requested", r, ref)
-				return &SetResult{Hash: headHash}, nil
+				return resultAt(r, headHash)
 			}
 			clean, err := r.IsClean()
 			if err != nil {
@@ -302,26 +375,55 @@ func (a Git) Set(ctx context.Context, repo, ref string, opts SetOpts) (*SetResul
 			}
 			if clean {
 				log.Debugf("taking no action, repo: %v verified to be at reference: %v and reset not required because repository is clean", r, ref)
-				return &SetResult{Hash: headHash}, nil
+				return resultAt(r, headHash)
 			} else {
 				return nil, fmt.Errorf("repository: %v verified to be at reference: %v but requested reset would modify contents", repo, ref)
 			}
 		}
 
 		// Return if we're already at the requested reference, and resetting isn't requested.
-		if headHash == refHash && (opts.Reset != SetOptResetTrue) {
-			log.Debugf("taking no action, repo: %v already set to requested reference: %v and reset not requested", r, ref)
-			return &SetResult{Hash: headHash}, nil
+		//
+		// Note: An issue can arise when a repository is initially set with the no-checkout option, resulting in a
+		// clone but no checkout. In this state, Git reports the current reference to be the head of the repository,
+		// even though no checkout has been was performed. If the repository is then requested to be set, we can falsely
+		// return early if we assume the content has been set based on its current reference. To avoid this scenario, we
+		// only return early if the repository is not empty, indicating that either:
+		// 1. The repository has been checked out previously (most likely), or
+		// 2. The repository is actually empty, or
+		// 3. The repository has been modified outside of this process.
+		// In any of these scenarios, avoiding an early return does not affect the correctness of the end result.
+		if headHash == refHash && (opts.Reset != OptResetTrue) {
+			c, plain := a.cacher.(PlainFsCache)
+			if !plain {
+				return nil, fmt.Errorf("repository must be a plain repository")
+			}
+			dir := c.RepoDir(repo)
+			files, err := os.ReadDir(dir)
+			if err != nil {
+				return nil, fmt.Errorf("error reading directory: %v for repository: %v", dir, repo)
+			}
+			if len(files) > 1 { // .git
+				log.Debugf("taking no action, repo: %v already set to requested reference: %v and reset not requested", r, ref)
+				return resultAt(r, headHash)
+			} else {
+				log.Debugf("ignoring equivalent references: %v against repo: %v, repository empty", ref, r)
+			}
+		}
+
+		// Return if checking out is requested not to be done.
+		if opts.Checkout != OptCheckoutTrue {
+			log.Debugf("checkout ignored, reference: %v resolved within repo: %v and no checkout requested", ref, r)
+			return resultAt(r, refHash)
 		}
 
 		// Checkout the repository to the requested reference, resetting as necessary.
 		err = r.Checkout(ref, CheckoutOpts{
-			Force: opts.Reset != SetOptResetFalse,
+			Force: opts.Reset != OptResetFalse,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("error checking out reference: %v: %w", ref, err)
 		}
-		return &SetResult{Hash: refHash}, nil
+		return resultAt(r, refHash)
 	}
 }
 

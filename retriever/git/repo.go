@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -19,6 +20,30 @@ type Repo struct {
 
 func (r *Repo) String() string {
 	return r.repo
+}
+
+// InitWithRemote initialises a plain repository at the directory for the given repository, adding the appropriate remote.
+func (a Git) InitWithRemote(_ context.Context, repo string) (*Repo, error) {
+	log.Debugf("initialising repo: %v", repo)
+	c, plain := a.cacher.(PlainFsCache)
+	if !plain {
+		return nil, fmt.Errorf("repository must be a plain repository")
+	}
+	rr, err := git.PlainInit(c.RepoDir(repo), false)
+	if err != nil {
+		return nil, fmt.Errorf("error initialising repository: %w", err)
+	}
+	return withAuth1(&a, repo, func(_ transport.AuthMethod, url string) (*Repo, error) {
+
+		// Add the remote repository (using the authentication url).
+		if _, err := rr.CreateRemote(&config.RemoteConfig{
+			Name: "origin",
+			URLs: []string{url},
+		}); err != nil {
+			return nil, fmt.Errorf("error creating repository remote: %v: %w", url, err)
+		}
+		return &Repo{&a, rr, repo}, nil
+	})
 }
 
 // CloneRepo clones the given repository.

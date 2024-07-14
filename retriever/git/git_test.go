@@ -88,11 +88,11 @@ func TestGitSession_Set_Fetch_Checkout(t *testing.T) {
 	session := NewSession(g)
 
 	// Retrieve the repository without fetching (which should fail because we have nothing).
-	err := session.Set(context.Background(), pubRepo, pubRepoV2SHA, SessionSetOpts{Fetch: SessionSetOptFetchFalse, Verbose: true})
+	err := session.Set(context.Background(), pubRepo, pubRepoV2SHA, SessionSetOpts{Fetch: SessionOptFetchFalse, Verbose: true})
 	require.Error(t, err)
 
 	// Retrieve the repository with explicit fetching (which should succeed).
-	err = session.Set(context.Background(), pubRepo, pubRepoV2SHA, SessionSetOpts{Fetch: SessionSetOptFetchTrue, Verbose: true})
+	err = session.Set(context.Background(), pubRepo, pubRepoV2SHA, SessionSetOpts{Fetch: SessionOptFetchTrue, Verbose: true})
 	require.NoError(t, err)
 }
 
@@ -115,11 +115,11 @@ func TestGitSession_Set_Fetch_Hash(t *testing.T) {
 	require.Equal(t, pubRepoInitContent, string(file))
 
 	// Retrieve a different hash without fetching (which should fail because we don't know the hash yet).
-	err = session.Set(context.Background(), pubRepo, pubRepoV1SHA, SessionSetOpts{Fetch: SessionSetOptFetchFalse, Verbose: true})
+	err = session.Set(context.Background(), pubRepo, pubRepoV1SHA, SessionSetOpts{Fetch: SessionOptFetchFalse, Verbose: true})
 	require.Error(t, err)
 
 	// Retrieve a different hash, allowing fetching if it is unknown (which should succeed because we don't know the hash yet).
-	err = session.Set(context.Background(), pubRepo, pubRepoV1SHA, SessionSetOpts{Fetch: SessionSetOptFetchUnknown, Verbose: true, Depth: 1})
+	err = session.Set(context.Background(), pubRepo, pubRepoV1SHA, SessionSetOpts{Fetch: SessionOptFetchUnknown, Verbose: true, Depth: 1})
 	require.NoError(t, err)
 
 	// Verify the content of the repository
@@ -128,7 +128,7 @@ func TestGitSession_Set_Fetch_Hash(t *testing.T) {
 	require.Equal(t, pubRepoV1Content, string(file))
 
 	// Retrieve the original hash without fetching (which should succeed because we know the hash).
-	err = session.Set(context.Background(), pubRepo, pubRepoInitSHA, SessionSetOpts{Fetch: SessionSetOptFetchFalse, Verbose: true})
+	err = session.Set(context.Background(), pubRepo, pubRepoInitSHA, SessionSetOpts{Fetch: SessionOptFetchFalse, Verbose: true})
 	require.NoError(t, err)
 
 	// Verify the content of the repository.
@@ -155,11 +155,11 @@ func TestGitSession_Set_Fetch_Hash_Short(t *testing.T) {
 	require.Equal(t, pubRepoV2Content, string(file))
 
 	// Retrieve a different hash without fetching (which should fail because we don't know the hash yet).
-	err = session.Set(context.Background(), pubRepo, pubRepoV1SHA[0:8], SessionSetOpts{Fetch: SessionSetOptFetchFalse, Verbose: true})
+	err = session.Set(context.Background(), pubRepo, pubRepoV1SHA[0:8], SessionSetOpts{Fetch: SessionOptFetchFalse, Verbose: true})
 	require.Error(t, err)
 
 	// Retrieve a different hash, allowing fetching if it is unknown (which should succeed because we don't know the hash yet).
-	err = session.Set(context.Background(), pubRepo, pubRepoV1SHA[0:8], SessionSetOpts{Fetch: SessionSetOptFetchUnknown, Verbose: true, Depth: 1})
+	err = session.Set(context.Background(), pubRepo, pubRepoV1SHA[0:8], SessionSetOpts{Fetch: SessionOptFetchUnknown, Verbose: true, Depth: 1})
 	require.NoError(t, err)
 
 	// Verify the content of the repository
@@ -168,7 +168,7 @@ func TestGitSession_Set_Fetch_Hash_Short(t *testing.T) {
 	require.Equal(t, pubRepoV1Content, string(file))
 
 	// Retrieve the original hash without fetching (which should succeed because we know the hash).
-	err = session.Set(context.Background(), pubRepo, pubRepoV2SHA[0:8], SessionSetOpts{Fetch: SessionSetOptFetchFalse, Verbose: true})
+	err = session.Set(context.Background(), pubRepo, pubRepoV2SHA[0:8], SessionSetOpts{Fetch: SessionOptFetchFalse, Verbose: true})
 	require.NoError(t, err)
 
 	// Verify the content of the repository.
@@ -206,11 +206,11 @@ func TestGitSession_Set_Fetch_Hash_Short_Arbitrary(t *testing.T) {
 	require.Equal(t, pubRepoInitContent, string(file))
 
 	// Retrieve a different hash without fetching (which should fail because we don't know the hash yet).
-	err = session.Set(context.Background(), pubRepo, pubRepoV1SHA[0:8], SessionSetOpts{Fetch: SessionSetOptFetchFalse, Verbose: true})
+	err = session.Set(context.Background(), pubRepo, pubRepoV1SHA[0:8], SessionSetOpts{Fetch: SessionOptFetchFalse, Verbose: true})
 	require.Error(t, err)
 
 	// Retrieve a different hash, allowing fetching if it is unknown (which should succeed because we don't know the hash yet).
-	err = session.Set(context.Background(), pubRepo, pubRepoV1SHA[0:8], SessionSetOpts{Fetch: SessionSetOptFetchUnknown, Verbose: true, Depth: 1})
+	err = session.Set(context.Background(), pubRepo, pubRepoV1SHA[0:8], SessionSetOpts{Fetch: SessionOptFetchUnknown, Verbose: true, Depth: 1})
 	require.NoError(t, err)
 
 	// Verify the content of the repository
@@ -219,7 +219,7 @@ func TestGitSession_Set_Fetch_Hash_Short_Arbitrary(t *testing.T) {
 	require.Equal(t, pubRepoV1Content, string(file))
 
 	// Retrieve the original hash without fetching (which should succeed because we know the hash).
-	err = session.Set(context.Background(), pubRepo, pubRepoV2SHA[0:8], SessionSetOpts{Fetch: SessionSetOptFetchFalse, Verbose: true})
+	err = session.Set(context.Background(), pubRepo, pubRepoV2SHA[0:8], SessionSetOpts{Fetch: SessionOptFetchFalse, Verbose: true})
 	require.NoError(t, err)
 
 	// Verify the content of the repository.
@@ -246,11 +246,11 @@ func TestGitSession_Set_Fetch_Branch(t *testing.T) {
 	require.Equal(t, pubRepoMainContent, string(file))
 
 	// Retrieve a different reference without fetching (which should fail because we don't know the reference yet).
-	err = session.Set(context.Background(), pubRepo, pubRepoDevelopBranch, SessionSetOpts{Fetch: SessionSetOptFetchFalse, Verbose: true})
+	err = session.Set(context.Background(), pubRepo, pubRepoDevelopBranch, SessionSetOpts{Fetch: SessionOptFetchFalse, Verbose: true})
 	require.Error(t, err)
 
 	// Retrieve a different reference, allowing fetching if it is unknown (which should succeed because we don't know the hash yet).
-	err = session.Set(context.Background(), pubRepo, pubRepoDevelopBranch, SessionSetOpts{Fetch: SessionSetOptFetchUnknown, Verbose: true, Depth: 1})
+	err = session.Set(context.Background(), pubRepo, pubRepoDevelopBranch, SessionSetOpts{Fetch: SessionOptFetchUnknown, Verbose: true, Depth: 1})
 	require.NoError(t, err)
 
 	// Verify the content of the repository
@@ -259,7 +259,7 @@ func TestGitSession_Set_Fetch_Branch(t *testing.T) {
 	require.Equal(t, pubRepoDevelopContent, string(file))
 
 	// Retrieve the original hash without fetching (which should false because we don't know if the remote reference has changed).
-	err = session.Set(context.Background(), pubRepo, pubRepoMainBranch, SessionSetOpts{Fetch: SessionSetOptFetchFalse, Verbose: true})
+	err = session.Set(context.Background(), pubRepo, pubRepoMainBranch, SessionSetOpts{Fetch: SessionOptFetchFalse, Verbose: true})
 	require.NoError(t, err)
 }
 
@@ -281,11 +281,11 @@ func TestGitSession_Set_Fetch_Tag_Prefix(t *testing.T) {
 	require.Equal(t, pubRepoV1Content, string(file))
 
 	// Retrieve a different reference without fetching (which should fail because we don't know the reference yet).
-	err = session.Set(context.Background(), pubRepo, "tags/"+pubRepoV2Tag, SessionSetOpts{Fetch: SessionSetOptFetchFalse, Verbose: true})
+	err = session.Set(context.Background(), pubRepo, "tags/"+pubRepoV2Tag, SessionSetOpts{Fetch: SessionOptFetchFalse, Verbose: true})
 	require.Error(t, err)
 
 	// Retrieve a different reference, allowing fetching if it is unknown (which should succeed because we don't know the hash yet).
-	err = session.Set(context.Background(), pubRepo, "tags/"+pubRepoV2Tag, SessionSetOpts{Fetch: SessionSetOptFetchUnknown, Verbose: true, Depth: 1})
+	err = session.Set(context.Background(), pubRepo, "tags/"+pubRepoV2Tag, SessionSetOpts{Fetch: SessionOptFetchUnknown, Verbose: true, Depth: 1})
 	require.NoError(t, err)
 
 	// Verify the content of the repository
@@ -294,7 +294,7 @@ func TestGitSession_Set_Fetch_Tag_Prefix(t *testing.T) {
 	require.Equal(t, pubRepoV2Content, string(file))
 
 	// Retrieve the original hash without fetching (which should false because we don't know if the remote reference has changed).
-	err = session.Set(context.Background(), pubRepo, "tags/"+pubRepoV1Tag, SessionSetOpts{Fetch: SessionSetOptFetchFalse, Verbose: true})
+	err = session.Set(context.Background(), pubRepo, "tags/"+pubRepoV1Tag, SessionSetOpts{Fetch: SessionOptFetchFalse, Verbose: true})
 	require.NoError(t, err)
 }
 
@@ -316,11 +316,11 @@ func TestGitSession_Set_Fetch_Tag(t *testing.T) {
 	require.Equal(t, pubRepoV1Content, string(file))
 
 	// Retrieve a different reference without fetching (which should fail because we don't know the reference yet).
-	err = session.Set(context.Background(), pubRepo, pubRepoV2Tag, SessionSetOpts{Fetch: SessionSetOptFetchFalse, Verbose: true})
+	err = session.Set(context.Background(), pubRepo, pubRepoV2Tag, SessionSetOpts{Fetch: SessionOptFetchFalse, Verbose: true})
 	require.Error(t, err)
 
 	// Retrieve a different reference, allowing fetching if it is unknown (which should succeed because we don't know the hash yet).
-	err = session.Set(context.Background(), pubRepo, pubRepoV2Tag, SessionSetOpts{Fetch: SessionSetOptFetchUnknown, Verbose: true, Depth: 1})
+	err = session.Set(context.Background(), pubRepo, pubRepoV2Tag, SessionSetOpts{Fetch: SessionOptFetchUnknown, Verbose: true, Depth: 1})
 	require.NoError(t, err)
 
 	// Verify the content of the repository
@@ -329,7 +329,47 @@ func TestGitSession_Set_Fetch_Tag(t *testing.T) {
 	require.Equal(t, pubRepoV2Content, string(file))
 
 	// Retrieve the original hash without fetching (which should false because we don't know if the remote reference has changed).
-	err = session.Set(context.Background(), pubRepo, pubRepoV1Tag, SessionSetOpts{Fetch: SessionSetOptFetchFalse, Verbose: true})
+	err = session.Set(context.Background(), pubRepo, pubRepoV1Tag, SessionSetOpts{Fetch: SessionOptFetchFalse, Verbose: true})
+	require.NoError(t, err)
+}
+
+// Verify setting the repository to a tag reference with various fetch options.
+func TestGitSession_Set_Fetch_Tag_ZeroDepth(t *testing.T) {
+
+	// Note: The current go-git-version (v5.12.0) fails to update fetched references against an existing repository if
+	// a depth of zero is requested. To work around this, a depth of at least one is always requested.
+
+	tmp := t.TempDir()
+	cacher := NewPlainFscache(tmp)
+	g := NewWithCache(nil, cacher)
+	repoDir := cacher.RepoDir(pubRepo)
+	session := NewSession(g)
+
+	// Retrieve the repository at a reference.
+	err := session.Set(context.Background(), pubRepo, pubRepoV1Tag, SessionSetOpts{Verbose: true, Depth: 1})
+	require.NoError(t, err)
+
+	// Verify the content of the repository.
+	file, err := os.ReadFile(filepath.Join(repoDir, "README.md"))
+	require.NoError(t, err)
+	require.Equal(t, pubRepoV1Content, string(file))
+
+	// Retrieve a different reference without fetching (which should fail because we don't know the reference yet).
+	err = session.Set(context.Background(), pubRepo, pubRepoV2Tag, SessionSetOpts{Fetch: SessionOptFetchFalse, Verbose: true})
+	require.Error(t, err)
+
+	// Retrieve a different reference, allowing fetching if it is unknown (which should succeed because we don't know the hash yet).
+	// Note: This is the error scenario that should fail due to the current limitation.
+	err = session.Set(context.Background(), pubRepo, pubRepoV2Tag, SessionSetOpts{Fetch: SessionOptFetchUnknown, Verbose: true, Depth: 0})
+	require.NoError(t, err)
+
+	// Verify the content of the repository
+	file, err = os.ReadFile(filepath.Join(repoDir, "README.md"))
+	require.NoError(t, err)
+	require.Equal(t, pubRepoV2Content, string(file))
+
+	// Retrieve the original hash without fetching (which should false because we don't know if the remote reference has changed).
+	err = session.Set(context.Background(), pubRepo, pubRepoV1Tag, SessionSetOpts{Fetch: SessionOptFetchFalse, Verbose: true})
 	require.NoError(t, err)
 }
 
@@ -372,7 +412,7 @@ func TestGitSession_Set_Reset(t *testing.T) {
 	require.Equal(t, newFileContent, string(file))
 
 	// Set the repository without resetting.
-	err = session.Set(context.Background(), pubRepo, pubRepoV2SHA, SessionSetOpts{Reset: SessionSetOptResetFalse, Verbose: true})
+	err = session.Set(context.Background(), pubRepo, pubRepoV2SHA, SessionSetOpts{Reset: SessionOptResetFalse, Verbose: true})
 	require.NoError(t, err)
 
 	// Verify the content of the modified file is unchanged.
@@ -386,7 +426,7 @@ func TestGitSession_Set_Reset(t *testing.T) {
 	require.Equal(t, newFileContent, string(file))
 
 	// Set the repository with reset.
-	err = session.Set(context.Background(), pubRepo, pubRepoV2SHA, SessionSetOpts{Reset: SessionSetOptResetTrue, Verbose: true})
+	err = session.Set(context.Background(), pubRepo, pubRepoV2SHA, SessionSetOpts{Reset: SessionOptResetTrue, Verbose: true})
 	require.NoError(t, err)
 
 	// Verify the modified content has returned to the remote branch content.
@@ -440,7 +480,7 @@ func TestGitSession_Set_Reset_First(t *testing.T) {
 	session := NewSession(g)
 
 	// Set the repository to the same reference, resetting the first time (which should reset because it's the first time).
-	err = session.Set(context.Background(), pubRepo, pubRepoV2SHA, SessionSetOpts{Reset: SessionSetOptResetFirst, Verbose: true})
+	err = session.Set(context.Background(), pubRepo, pubRepoV2SHA, SessionSetOpts{Reset: SessionOptResetFirst, Verbose: true})
 	require.NoError(t, err)
 
 	// Verify the modified content has returned to the remote branch content.
@@ -470,7 +510,7 @@ func TestGitSession_Set_Reset_First(t *testing.T) {
 	require.Equal(t, newFileContent, string(file))
 
 	// Set the repository to the same reference, resetting the first time (which should result in no action because it's not the first time).
-	err = session.Set(context.Background(), pubRepo, pubRepoV2SHA, SessionSetOpts{Reset: SessionSetOptResetFirst, Verbose: true})
+	err = session.Set(context.Background(), pubRepo, pubRepoV2SHA, SessionSetOpts{Reset: SessionOptResetFirst, Verbose: true})
 	require.NoError(t, err)
 
 	// Verify the content of the modified file.
@@ -525,7 +565,7 @@ func TestGitSession_Set_Reset_OnCheckout(t *testing.T) {
 	session := NewSession(g)
 
 	// Set the repository to the same reference, resetting on checkout (which should do nothing because we're already at the correct reference).
-	err = session.Set(context.Background(), pubRepo, pubRepoV2SHA, SessionSetOpts{Reset: SessionSetOptResetOnCheckout, Verbose: true})
+	err = session.Set(context.Background(), pubRepo, pubRepoV2SHA, SessionSetOpts{Reset: SessionOptResetOnCheckout, Verbose: true})
 	require.NoError(t, err)
 
 	// Verify the content of the modified file.
@@ -539,7 +579,7 @@ func TestGitSession_Set_Reset_OnCheckout(t *testing.T) {
 	require.Equal(t, newFileContent, string(file))
 
 	// Set the repository to a different reference, resetting on checkout (which should reset because it's a different reference).
-	err = session.Set(context.Background(), pubRepo, pubRepoV1SHA, SessionSetOpts{Reset: SessionSetOptResetOnCheckout, Verbose: true})
+	err = session.Set(context.Background(), pubRepo, pubRepoV1SHA, SessionSetOpts{Reset: SessionOptResetOnCheckout, Verbose: true})
 	require.NoError(t, err)
 
 	// Verify the modified content is now at the requested reference.
@@ -556,7 +596,7 @@ func TestGitSession_Set_Reset_OnCheckout(t *testing.T) {
 	require.NoError(t, err)
 
 	// Set the repository to a different reference, without resetting (which should result in an error because there are unstaged changes).
-	err = session.Set(context.Background(), pubRepo, pubRepoV2SHA, SessionSetOpts{Reset: SessionSetOptResetFalse, Verbose: true})
+	err = session.Set(context.Background(), pubRepo, pubRepoV2SHA, SessionSetOpts{Reset: SessionOptResetFalse, Verbose: true})
 	require.Error(t, err)
 }
 
@@ -612,7 +652,7 @@ func TestGitSession_Set_Verify(t *testing.T) {
 	require.Equal(t, modifiedFileContent, string(file))
 
 	// Verify the repository is set to the reference, but resetting would modify.
-	err = session.Set(context.Background(), pubRepo, pubRepoV2SHA, SessionSetOpts{Verify: true, Reset: SessionSetOptResetTrue})
+	err = session.Set(context.Background(), pubRepo, pubRepoV2SHA, SessionSetOpts{Verify: true, Reset: SessionOptResetTrue})
 	require.ErrorContains(t, err, "verified to be at reference")
 	require.ErrorContains(t, err, "but requested reset would modify contents")
 
@@ -621,7 +661,7 @@ func TestGitSession_Set_Verify(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify the repository is set to the reference, and no reset is required.
-	err = session.Set(context.Background(), pubRepo, pubRepoV2SHA, SessionSetOpts{Verify: true, Reset: SessionSetOptResetTrue})
+	err = session.Set(context.Background(), pubRepo, pubRepoV2SHA, SessionSetOpts{Verify: true, Reset: SessionOptResetTrue})
 	require.NoError(t, err)
 }
 
@@ -661,7 +701,7 @@ func TestGitSession_Set_Fetch(t *testing.T) {
 
 	// Set the repository to the named branch again without fetching. Use a new session to avoid the cached hash.
 	// Note: The repository should not be fetched because it was requested not to be.
-	err = NewSession(g).Set(context.Background(), pubRepo, pubRepoMainBranch, SessionSetOpts{Fetch: SessionSetOptFetchFalse})
+	err = NewSession(g).Set(context.Background(), pubRepo, pubRepoMainBranch, SessionSetOpts{Fetch: SessionOptFetchFalse})
 	require.NoError(t, err)
 
 	// Verify that no fetch was performed.
@@ -686,7 +726,7 @@ func TestGitSession_Set_Fetch(t *testing.T) {
 
 	// Set the repository to the named branch again with fetching. Use a new session to avoid the cached hash.
 	// Note: The repository should be fetched because it was requested to be, and the reference is not a hash.
-	err = NewSession(g).Set(context.Background(), pubRepo, pubRepoMainBranch, SessionSetOpts{Fetch: SessionSetOptFetchTrue})
+	err = NewSession(g).Set(context.Background(), pubRepo, pubRepoMainBranch, SessionSetOpts{Fetch: SessionOptFetchTrue})
 	require.NoError(t, err)
 
 	// Verify that a fetch was performed.
@@ -711,7 +751,7 @@ func TestGitSession_Set_Fetch(t *testing.T) {
 
 	// Set the repository to the named branch again with fetching if unknown. Use a new session to avoid the cached hash.
 	// Note: The repository should not be fetched because the branch reference (main) is already known.
-	err = NewSession(g).Set(context.Background(), pubRepo, pubRepoMainBranch, SessionSetOpts{Fetch: SessionSetOptFetchUnknown})
+	err = NewSession(g).Set(context.Background(), pubRepo, pubRepoMainBranch, SessionSetOpts{Fetch: SessionOptFetchUnknown})
 	require.NoError(t, err)
 
 	// Verify that no fetch was performed.
@@ -736,7 +776,7 @@ func TestGitSession_Set_Fetch(t *testing.T) {
 
 	// Set the repository to the hash of the named branch with fetching true. Use a new session to avoid the cached hash.
 	// Note: The repository should not be fetched because the hash reference is already known.
-	err = NewSession(g).Set(context.Background(), pubRepo, pubRepoMainSHA, SessionSetOpts{Fetch: SessionSetOptFetchTrue})
+	err = NewSession(g).Set(context.Background(), pubRepo, pubRepoMainSHA, SessionSetOpts{Fetch: SessionOptFetchTrue})
 	require.NoError(t, err)
 
 	// Verify that no fetch was performed.
@@ -761,7 +801,7 @@ func TestGitSession_Set_Fetch(t *testing.T) {
 
 	// Set the repository to the short hash of the named branch with fetching true. Use a new session to avoid the cached hash.
 	// Note: The repository should not be fetched because the (short) hash reference is already known.
-	err = NewSession(g).Set(context.Background(), pubRepo, pubRepoMainSHA[0:8], SessionSetOpts{Fetch: SessionSetOptFetchTrue})
+	err = NewSession(g).Set(context.Background(), pubRepo, pubRepoMainSHA[0:8], SessionSetOpts{Fetch: SessionOptFetchTrue})
 	require.NoError(t, err)
 
 	// Verify that no fetch was performed.
@@ -824,7 +864,7 @@ func TestGitSession_Set_Fetch_Remote_Updated(t *testing.T) {
 
 	// Set the repository to the named branch again without fetching. Use a new session to avoid the cached hash.
 	// Note: The repository should not be fetched because it was requested not to be.
-	err = NewSession(g).Set(context.Background(), remoteRepo, pubRepoMainBranch, SessionSetOpts{Fetch: SessionSetOptFetchFalse})
+	err = NewSession(g).Set(context.Background(), remoteRepo, pubRepoMainBranch, SessionSetOpts{Fetch: SessionOptFetchFalse})
 	require.NoError(t, err)
 
 	// Verify that no fetch was performed.
@@ -840,7 +880,7 @@ func TestGitSession_Set_Fetch_Remote_Updated(t *testing.T) {
 
 	// Set the repository to the named branch again with fetching. Use a new session to avoid the cached hash.
 	// Note: The repository should be fetched because it was requested to be, and the reference is not a hash.
-	err = NewSession(g).Set(context.Background(), remoteRepo, pubRepoMainBranch, SessionSetOpts{Fetch: SessionSetOptFetchTrue})
+	err = NewSession(g).Set(context.Background(), remoteRepo, pubRepoMainBranch, SessionSetOpts{Fetch: SessionOptFetchTrue})
 	require.NoError(t, err)
 
 	// Verify that a fetch was performed.
@@ -850,6 +890,121 @@ func TestGitSession_Set_Fetch_Remote_Updated(t *testing.T) {
 	file, err = os.ReadFile(filepath.Join(repoDir, "README.md"))
 	require.NoError(t, err)
 	require.Equal(t, modifiedFileContent, string(file))
+}
+
+// Verify setting the repository using the various supported reference types (branch, tag, hash) sets the content.
+func TestGitSession_Resolve_ResolveFirst(t *testing.T) {
+	tmp := t.TempDir()
+	cacher := NewPlainFscache(tmp)
+	g := NewWithCache(nil, cacher)
+	repoDir := cacher.RepoDir(pubRepo)
+
+	session := NewSession(g)
+
+	// Retrieve the repository.
+	commit, err := session.Resolve(context.Background(), pubRepo, pubRepoV2Tag, SessionResolveOpts{Depth: 1, Verbose: true})
+	require.NoError(t, err)
+
+	// Verify the hash value.
+	require.Equal(t, pubRepoV2SHA, commit.Hash.String())
+
+	// Verify the content is not present.
+	_, err = os.ReadFile(filepath.Join(repoDir, "README.md"))
+	require.Error(t, err)
+
+	// Set the repository to the same reference.
+	err = session.Set(context.Background(), pubRepo, pubRepoV2Tag, SessionSetOpts{Depth: 1, Verbose: true})
+	require.NoError(t, err)
+
+	// Verify the content of the repository
+	file, err := os.ReadFile(filepath.Join(repoDir, "README.md"))
+	require.NoError(t, err)
+	require.Equal(t, pubRepoV2Content, string(file))
+}
+
+// Verify setting the repository using the various supported reference types (branch, tag, hash) sets the content.
+func TestGitSession_Resolve_SetFirst(t *testing.T) {
+	tmp := t.TempDir()
+	cacher := NewPlainFscache(tmp)
+	g := NewWithCache(nil, cacher)
+	repoDir := cacher.RepoDir(pubRepo)
+
+	session := NewSession(g)
+
+	// Set the repository.
+	err := session.Set(context.Background(), pubRepo, pubRepoV2Tag, SessionSetOpts{Depth: 1, Verbose: true})
+	require.NoError(t, err)
+
+	// Verify the content of the repository.
+	file, err := os.ReadFile(filepath.Join(repoDir, "README.md"))
+	require.NoError(t, err)
+	require.Equal(t, pubRepoV2Content, string(file))
+
+	// Resolve the repository to a different reference.
+	commit, err := session.Resolve(context.Background(), pubRepo, pubRepoV1Tag, SessionResolveOpts{Depth: 1, Verbose: true})
+	require.NoError(t, err)
+
+	// Verify the hash value.
+	require.Equal(t, pubRepoV1SHA, commit.Hash.String())
+
+	// Verify the content of the repository is unchanged.
+	file, err = os.ReadFile(filepath.Join(repoDir, "README.md"))
+	require.NoError(t, err)
+	require.Equal(t, pubRepoV2Content, string(file))
+}
+
+// Verify setting the repository using the various supported reference types (branch, tag, hash) sets the content.
+func TestGitSession_Resolve_FetchUnknown(t *testing.T) {
+	tmp := t.TempDir()
+	cacher := NewPlainFscache(tmp)
+	g := NewWithCache(nil, cacher)
+	repoDir := cacher.RepoDir(pubRepo)
+
+	session := NewSession(g)
+
+	// Set the repository.
+	err := session.Set(context.Background(), pubRepo, pubRepoV2Tag, SessionSetOpts{Depth: 1, Verbose: true})
+	require.NoError(t, err)
+
+	// Verify the content of the repository.
+	file, err := os.ReadFile(filepath.Join(repoDir, "README.md"))
+	require.NoError(t, err)
+	require.Equal(t, pubRepoV2Content, string(file))
+
+	// Resolve the repository to a different reference.
+	commit, err := session.Resolve(context.Background(), pubRepo, pubRepoV1Tag, SessionResolveOpts{Fetch: SessionOptFetchUnknown, Verbose: true})
+	require.NoError(t, err)
+
+	// Verify the hash value.
+	require.Equal(t, pubRepoV1SHA, commit.Hash.String())
+
+	// Verify the content of the repository is unchanged.
+	file, err = os.ReadFile(filepath.Join(repoDir, "README.md"))
+	require.NoError(t, err)
+	require.Equal(t, pubRepoV2Content, string(file))
+}
+
+// Verify setting the repository using the various supported reference types (branch, tag, hash) sets the content.
+func TestGitSession_Resolve_FetchFalse(t *testing.T) {
+	tmp := t.TempDir()
+	cacher := NewPlainFscache(tmp)
+	g := NewWithCache(nil, cacher)
+	repoDir := cacher.RepoDir(pubRepo)
+
+	session := NewSession(g)
+
+	// Set the repository.
+	err := session.Set(context.Background(), pubRepo, pubRepoV2Tag, SessionSetOpts{Depth: 1, Verbose: true})
+	require.NoError(t, err)
+
+	// Verify the content of the repository.
+	file, err := os.ReadFile(filepath.Join(repoDir, "README.md"))
+	require.NoError(t, err)
+	require.Equal(t, pubRepoV2Content, string(file))
+
+	// Resolve the repository to an unknown reference without fetching (which should fail because we don't know the reference).
+	_, err = session.Resolve(context.Background(), pubRepo, pubRepoV1Tag, SessionResolveOpts{Fetch: SessionOptFetchFalse, Verbose: true})
+	require.Error(t, err)
 }
 
 // execute the given command.
