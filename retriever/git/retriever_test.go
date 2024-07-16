@@ -3,6 +3,7 @@ package git
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"testing"
 
@@ -164,6 +165,7 @@ func TestGitRetrievePrivateRepoAuthNone(t *testing.T) {
 
 	noneGit := New(nil)
 	c, err := noneGit.Retrieve(context.Background(), ParseResource(t, privRepoREADME))
+	require.Error(t, err)
 	errMsg := err.Error()
 	require.Contains(t, errMsg, "git clone: Unable to authenticate, tried:")
 	require.Contains(t, errMsg, "- None: authentication required")
@@ -181,13 +183,51 @@ func TestGitRetrievePrivateRepoAuthToken(t *testing.T) {
 
 	defer patch.Unpatch()
 
-	tokenGit := New(&AuthOptions{Tokens: map[string]string{"github.com": password}})
+	tokenGit := New((&AuthOptions{}).WithTokenPairs(map[string]string{"github.com": password}))
 	c, err := tokenGit.Retrieve(context.Background(), ParseResource(t, privRepoREADME))
 	require.NoError(t, err)
 	require.Equal(t, privRepoContent, string(c))
 
-	wrongTokenGit := New(&AuthOptions{Tokens: map[string]string{"github.com": "foobar"}})
+	wrongTokenGit := New((&AuthOptions{}).WithTokenPairs(map[string]string{"github.com": "foobar"}))
 	c, err = wrongTokenGit.Retrieve(context.Background(), ParseResource(t, privRepoREADME))
+	require.Error(t, err)
+	errMsg := err.Error()
+	require.Contains(t, errMsg, "git clone: Unable to authenticate, tried:")
+	require.Contains(t, errMsg, "- None: authentication required")
+	require.Contains(t, errMsg, "- Username and Password/Token: authentication required")
+	require.Equal(t, "", string(c))
+}
+
+func TestGitRetrievePrivateRepoAuthMultipleTokens(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
+	patch, _ := mpatch.PatchMethod(NewSSHAgent, func() (*SSHAgent, error) {
+		return nil, errors.New("Create SSH Agent failed")
+	})
+
+	defer patch.Unpatch()
+
+	authGoodFirst, err := (&AuthOptions{}).WithTokensFromString(fmt.Sprintf("github.com:%s,github.com:%s", password, "badToken"))
+	require.NoError(t, err)
+	tokenGitFirst := New(authGoodFirst)
+	c, err := tokenGitFirst.Retrieve(context.Background(), ParseResource(t, privRepoREADME))
+	require.NoError(t, err)
+	require.Equal(t, privRepoContent, string(c))
+
+	authBadFirst, err := (&AuthOptions{}).WithTokensFromString(fmt.Sprintf("github.com:%s,github.com:%s", "badToken", password))
+	require.NoError(t, err)
+	tokenGitSecond := New(authBadFirst)
+	c, err = tokenGitSecond.Retrieve(context.Background(), ParseResource(t, privRepoREADME))
+	require.NoError(t, err)
+	require.Equal(t, privRepoContent, string(c))
+
+	authBothBad, err := (&AuthOptions{}).WithTokensFromString(fmt.Sprintf("github.com:%s,github.com:%s", "badToken1", "badToken2"))
+	require.NoError(t, err)
+	wrongTokenGit := New(authBothBad)
+	c, err = wrongTokenGit.Retrieve(context.Background(), ParseResource(t, privRepoREADME))
+	require.Error(t, err)
 	errMsg := err.Error()
 	require.Contains(t, errMsg, "git clone: Unable to authenticate, tried:")
 	require.Contains(t, errMsg, "- None: authentication required")

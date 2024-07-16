@@ -77,6 +77,34 @@ func NewWithOptions(options *NewGitOptions) *Git {
 			}
 			methods = append(methods, NewBasicAuth(creds))
 		}
+
+		if len(options.AuthOptions.tokens) > 0 {
+			// add duplicates after the general batch
+			var extraMethods []Authenticator
+			creds := make(map[string]Credential, len(options.AuthOptions.tokens))
+			for host, tokens := range options.AuthOptions.tokens {
+				creds[host] = Credential{
+					Username: "modv2",
+					Password: tokens[0],
+				}
+				// BasicAuth can only handle a single token for each host, so use the same map for each host
+				// In the cases where we have more than 1 token for a host create extra BasicAuth map for each
+				if len(tokens) > 1 {
+					for _, token := range tokens[1:] {
+						extraMethods = append(extraMethods, NewBasicAuth(
+							map[string]Credential{
+								host: {
+									Username: "modv2",
+									Password: token,
+								},
+							},
+						))
+					}
+				}
+			}
+			methods = append(methods, NewBasicAuth(creds))
+			methods = append(methods, extraMethods...)
+		}
 	}
 
 	methods = append(methods, None{})
@@ -99,12 +127,53 @@ func NewWithOptions(options *NewGitOptions) *Git {
 type AuthOptions struct {
 	// Credentials is a key-value pairs of <host>, <username+password>, e.g. { "github.com": {"username": "abcdef", "password": "123456"} }
 	Credentials map[string]Credential
-	// Tokens is a key-value pairs of <host>, <personal access token>, e.g. { "github.com": "qwerty" }
+	// Deprecated: Use WithTokens, WithTokenPairs or WithTokensFromString instead.
 	Tokens map[string]string
+	// tokens is a map of key-value pairs of <host> to list of <personal access token>s, e.g. { "github.com": ["qwerty"] }
+	// use WithTokensFromString() to populate it
+	tokens map[string][]string
 	// SSHKeys is a key-value pairs of <host>, <private key + key password>, e.g. { "github.com": {"private_key": "~/.ssh/id_rsa_github", "private_key_password": ""} }
 	SSHKeys map[string]SSHKey
 	// True if authentication to a local repository should be included in the available methods.
 	Local bool
+}
+
+// WithTokens populates AuthOptions with the passed in tokens
+func (ao *AuthOptions) WithTokens(t map[string][]string) *AuthOptions {
+	ao.tokens = t
+	return ao
+}
+
+// WithTokenPairs populates AuthOptions with the passed in tokens pairs
+func (ao *AuthOptions) WithTokenPairs(t map[string]string) *AuthOptions {
+	tokens := make(map[string][]string)
+	for host, token := range t {
+		tokens[host] = []string{token}
+	}
+	ao.tokens = tokens
+	return ao
+}
+
+// WithTokensFromString populates AuthOptions with tokens parsed from a token string in the format 'hosta:<tokena>,hostb:<tokenb>'
+func (ao *AuthOptions) WithTokensFromString(tokensStr string) (*AuthOptions, error) {
+	if len(tokensStr) > 0 {
+		tokens := make(map[string][]string)
+		hostTokens := strings.Split(tokensStr, ",")
+		for _, t := range hostTokens {
+			arr := strings.Split(t, ":")
+			if len(arr) != 2 {
+				return nil, fmt.Errorf(
+					"token string is invalid, should be in format `hosta:<tokena>,hostb:<tokenb>`: %s",
+					tokensStr,
+				)
+			}
+			tokens[arr[0]] = append(tokens[arr[0]], arr[1])
+		}
+
+		ao.tokens = tokens
+	}
+
+	return ao, nil
 }
 
 type SetOpts struct {
