@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -25,7 +26,7 @@ func init() {
 }
 
 func isReferenceNotFoundErr(err error) bool {
-	return nomatchspecErr.Is(err) || plumbing.ErrReferenceNotFound == err
+	return nomatchspecErr.Is(err) || errors.Is(err, plumbing.ErrReferenceNotFound)
 }
 
 var nomatchspecErr = git.NoMatchingRefSpecError{}
@@ -96,7 +97,7 @@ func (a Git) CloneWithOpts(ctx context.Context, resource *retriever.Resource, op
 		if isReferenceNotFoundErr(err) {
 			errmsg = fmt.Sprintf("reference %s not found", resource.Ref.Name())
 		}
-		if transport.ErrRepositoryNotFound == err {
+		if errors.Is(err, transport.ErrRepositoryNotFound) {
 			errmsg = fmt.Sprintf("repository %s not found", repo)
 		}
 		tried = append(tried, fmt.Sprintf("    - %s: %s", meth.Name(), errmsg))
@@ -201,13 +202,13 @@ func (a Git) FetchRefSpec(ctx context.Context, r *git.Repository, repo string, s
 		}
 		log.Debugf("fetching ref spec context with auth method: %v", meth.Name())
 		err = r.FetchContext(ctx, options)
-		if err == nil || err == git.NoErrAlreadyUpToDate {
+		if err == nil || errors.Is(err, git.NoErrAlreadyUpToDate) {
 			log.Debugf("ref spec: %v fetched with auth method: %v", spec, meth.Name())
 			return nil
 		}
 
 		errmsg := err.Error()
-		if nomatchspecErr.Is(err) {
+		if isReferenceNotFoundErr(err) {
 			errmsg = fmt.Sprintf("reference %s not found", spec)
 		}
 		tried = append(tried, fmt.Sprintf("    - %s: %s", meth.Name(), errmsg))
@@ -276,7 +277,7 @@ func (a Git) FetchCommitWithOpts(ctx context.Context, r *git.Repository, repo st
 		}
 
 		err = r.FetchContext(ctx, &options)
-		if err == nil || err == git.NoErrAlreadyUpToDate {
+		if err == nil || errors.Is(err, git.NoErrAlreadyUpToDate) {
 			return nil
 		}
 
@@ -297,7 +298,7 @@ func (a Git) Show(r *git.Repository, resource *retriever.Resource) ([]byte, erro
 
 	commit, err := r.CommitObject(plumbing.NewHash(resource.Ref.Hash().String()))
 	if err != nil {
-		if err == plumbing.ErrObjectNotFound {
+		if errors.Is(err, plumbing.ErrObjectNotFound) {
 			return nil, fmt.Errorf("object of commit %s not found", resource.Ref.Hash())
 		}
 		return nil, err
@@ -364,7 +365,7 @@ func (a Git) ResolveReference(r *git.Repository, resource *retriever.Resource) (
 	if err != nil || rev != "HEAD" {
 		h, err = r.ResolveRevision(plumbing.Revision(rev))
 		if err != nil {
-			if err == plumbing.ErrReferenceNotFound {
+			if errors.Is(err, plumbing.ErrReferenceNotFound) {
 				return fmt.Errorf("reference %s not found", rev)
 			}
 			return

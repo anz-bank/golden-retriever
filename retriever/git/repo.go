@@ -111,7 +111,7 @@ func (r *Repo) FetchRef(ctx context.Context, ref string, opts FetchOpts) error {
 			RefSpecs:  []config.RefSpec{spec},
 			Tags:      tags,
 		})
-		if err == git.NoErrAlreadyUpToDate {
+		if errors.Is(err, git.NoErrAlreadyUpToDate) {
 			return nil
 		}
 		return err
@@ -132,7 +132,7 @@ func (r *Repo) Fetch(ctx context.Context, opts FetchOpts) (err error) {
 			RefSpecs:  []config.RefSpec{spec},
 			Tags:      tags,
 		})
-		if err == git.NoErrAlreadyUpToDate {
+		if errors.Is(err, git.NoErrAlreadyUpToDate) {
 			return nil
 		}
 		return err
