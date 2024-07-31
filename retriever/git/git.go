@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/go-git/go-billy/v5/memfs"
@@ -84,13 +85,32 @@ func (a Git) CloneWithOpts(ctx context.Context, resource *retriever.Resource, op
 			Tags:          tags,
 		}
 
-		if isPlain {
-			r, err = git.PlainCloneContext(ctx, c.RepoDir(repo), false, options)
-		} else {
-			r, err = git.CloneContext(ctx, a.cacher.NewStorer(repo), memfs.New(), options)
-		}
-		if err == nil {
-			return r, nil
+		retries := 0
+		tryAgain := true
+		for tryAgain {
+			if isPlain {
+				r, err = git.PlainCloneContext(ctx, c.RepoDir(repo), false, options)
+			} else {
+				r, err = git.CloneContext(ctx, a.cacher.NewStorer(repo), memfs.New(), options)
+			}
+			if err == nil {
+				return r, nil
+			}
+
+			tryAgain = false
+			if retries < 3 {
+				// retry on CANCEL stream error or 'unexpected EOF'
+				if m, _ := regexp.MatchString(
+					`(stream error: stream ID \d+; CANCEL; received from peer)`+
+						`|(unexpected EOF)`+
+						`|(ssh: handshake failed: EOF)`+
+						`|(CONNECT response to .* was not 2xx)`,
+					err.Error(),
+				); m {
+					tryAgain = true
+					retries += 1
+				}
+			}
 		}
 
 		errmsg := err.Error()
