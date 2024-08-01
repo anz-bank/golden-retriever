@@ -689,7 +689,7 @@ func TestGitSession_Set_Fetch(t *testing.T) {
 	require.Equal(t, pubRepoMainContent, string(file))
 
 	// Set the config to keep line endings so the test doesn't fail on Windows
-	err = execute(repoDir, "git", "config", "core.autocrlf", "true")
+	err = execute(repoDir, "git", "config", "core.autocrlf", "input")
 	require.NoError(t, err)
 
 	// In an out-of-band process, move the head to a different commit.
