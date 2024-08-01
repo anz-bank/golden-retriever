@@ -2,6 +2,7 @@ package git
 
 import (
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/go-git/go-billy/v5/osfs"
@@ -84,7 +85,7 @@ func (s FsCache) NewStorer(repo string) storage.Storer {
 }
 
 func (s FsCache) repoDir(repo string) string {
-	return filepath.Join(s.dir, repo)
+	return filepath.Join(s.dir, cleanForSubPath(repo))
 }
 
 // PlainFsCache implements the Cacher interface storing repositories in filesystem
@@ -118,5 +119,11 @@ func (s PlainFsCache) NewStorer(repo string) storage.Storer {
 }
 
 func (s PlainFsCache) RepoDir(repo string) string {
-	return filepath.Join(s.dir, repo)
+	return filepath.Join(s.dir, cleanForSubPath(repo))
+}
+
+// cleanForSubPath will return a string that is suitable to be used as subpath in the cache directory
+// for Windows caching a local repo we need to remove the colon in the drive letter
+func cleanForSubPath(repo string) string {
+	return strings.ReplaceAll(repo, ":", "")
 }
