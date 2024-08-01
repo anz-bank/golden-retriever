@@ -17,13 +17,14 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Set up Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v5
         with:
           go-version: 1.21
           check-latest: true
+          cache: false
 
       - name: Check out
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Make Short Test
         if: ${{ github.repository_owner != 'anz-bank' }}
