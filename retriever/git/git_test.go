@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	log "github.com/sirupsen/logrus"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Verify setting the repository using the various supported reference types (branch, tag, hash) sets the content.
@@ -686,6 +687,10 @@ func TestGitSession_Set_Fetch(t *testing.T) {
 	file, err := os.ReadFile(filepath.Join(repoDir, "README.md"))
 	require.NoError(t, err)
 	require.Equal(t, pubRepoMainContent, string(file))
+
+	// Set the config to keep line endings so the test doesn't fail on Windows
+	err = execute(repoDir, "git", "config", "core.autocrlf", "true")
+	require.NoError(t, err)
 
 	// In an out-of-band process, move the head to a different commit.
 	err = execute(repoDir, "git", "reset", "--hard", pubRepoV1SHA)

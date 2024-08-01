@@ -17,19 +17,25 @@ const (
 	pubRepo       = "github.com/SyslBot/a-public-repo"
 	pubRepoREADME = pubRepo + "/README.md"
 
-	pubRepoInitSHA       = "1e7c4cecaaa8f76e3c668cebc411f1b03171501f"
-	pubRepoV1SHA         = "f948d44b0d97dbbe019949c8b574b5f246b25dc2"
-	pubRepoV2SHA         = "6a27bac5e5c379649c5b4574845744957cd6c749"
-	pubRepoMainSHA       = pubRepoV2SHA
-	pubRepoV1Tag         = "v0.0.1"
-	pubRepoV2Tag         = "v0.0.2"
-	pubRepoDevelopBranch = "develop"
-	pubRepoMainBranch    = "main"
+	pubRepoInitSHA        = "1e7c4cecaaa8f76e3c668cebc411f1b03171501f"
+	pubRepoV1SHA          = "f948d44b0d97dbbe019949c8b574b5f246b25dc2"
+	pubRepoV2SHA          = "6a27bac5e5c379649c5b4574845744957cd6c749"
+	pubRepoMainSHA        = pubRepoV2SHA
+	pubRepoV1Tag          = "v0.0.1"
+	pubRepoV2Tag          = "v0.0.2"
+	pubRepoDevelopBranch  = "develop"
+	pubRepoMainBranch     = "main"
+	pubRepoInitContent    = "# a-public-repo\nA public repo for modules testing\n"
+	pubRepoV1Content      = "# a-public-repo v0.0.1\nA public repo for modules testing\n"
+	pubRepoV2Content      = "# a-public-repo v0.0.2\nA public repo for modules testing\n"
+	pubRepoDevelopContent = "# a-public-repo-dev\nA public repo for modules testing\n"
+	pubRepoMainContent    = pubRepoV2Content
 )
 
 const (
-	privRepo       = "github.com/SyslBot/a-private-repo"
-	privRepoREADME = privRepo + "/README.md"
+	privRepo        = "github.com/SyslBot/a-private-repo"
+	privRepoREADME  = privRepo + "/README.md"
+	privRepoContent = "# a-private-repo\nA private repo for modules testing\n"
 )
 
 var (
