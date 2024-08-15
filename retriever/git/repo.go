@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os/exec"
+	"strings"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport"
+	"github.com/go-git/go-git/v5/plumbing/transport/http"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -72,23 +75,52 @@ func (a Git) CloneRepo(ctx context.Context, repo string, opts CloneOpts) (*Repo,
 }
 
 // FetchRefOrAll fetches the reference from the remote repository, falling back to attempting to resolve the reference
-// by fetching all references from the remote repository.
+// using the gh cli, if that fails it fetches the entire repo.
 func (r *Repo) FetchRefOrAll(ctx context.Context, ref string, opts FetchOpts) error {
 	err := r.FetchRef(ctx, ref, opts)
 	if err == nil {
 		return nil
 	}
-	opts.Tags = FetchOptTagsAll
-	err2 := r.Fetch(ctx, opts)
-	if err2 != nil {
-		return fmt.Errorf("error fetching ref or all: %w", errors.Join(err, err2))
+
+	// If hitting github.com then try to expand the ref to a hash using the github API (via the gh command-line)
+	var err2, resolveErr error
+	if strings.HasPrefix(r.repo, "github.com") {
+		cmd := exec.Command("gh", "api", "/repos/"+r.repo[11:]+"/commits/"+ref, "--jq", ".sha")
+		cmd.Env = append(cmd.Environ(), "GH_NO_UPDATE_NOTIFIER=TRUE")
+		// Check if there is a gihub token in authmethods
+		for _, meth := range r.g.authMethods {
+			githubAuth, _ := meth.AuthMethod("github.com")
+			if basicAuth, ok := githubAuth.(*http.BasicAuth); ok {
+				cmd.Env = append(cmd.Env, "GH_TOKEN="+basicAuth.Password)
+				break
+			}
+		}
+		var out []byte
+		out, resolveErr = cmd.Output()
+		if resolveErr == nil {
+			err2 = r.FetchRef(ctx, strings.TrimSpace(string(out)), opts)
+			if err2 == nil {
+				return nil
+			}
+		}
 	}
-	exists, err2 := r.Exists(ref)
-	if err2 != nil {
-		return fmt.Errorf("error fetching ref or all: %w", errors.Join(err, err2))
+
+	// the current version of go-git (v5.12.0) does not support --unshallow yet so set depth to infinite instead (see https://git-scm.com/docs/shallow)
+	opts.Depth = 2147483647
+	opts.Tags = FetchOptTagsAll
+	err3 := r.Fetch(ctx, opts)
+	if err3 != nil {
+		return fmt.Errorf("error fetching ref or all: %w", errors.Join(err, err2, err3))
+	}
+	exists, err3 := r.Exists(ref)
+	if err3 != nil {
+		return fmt.Errorf("error fetching ref or all: %w", errors.Join(err, err2, err3))
 	}
 	if !exists {
 		return fmt.Errorf("error fetching ref or all, ref: %v doesn't exist after fetch: %w", ref, err)
+	}
+	if resolveErr != nil {
+		log.Infof("reference resolved after full fetch, to enable resolving the reference via API and not requiring a full fetch, install gh and either set GH_TOKEN or call 'gh auth login': %v", resolveErr)
 	}
 	return nil
 }
@@ -146,10 +178,13 @@ func (o ListOpts) String() string {
 }
 
 // ListRemoteRefs lists all references in the remote repository.
-func (r *Repo) ListRemoteRefs(ctx context.Context, remote string, opts ListOpts) (*[]*plumbing.Reference, error) {
+func (r *Repo) ListRemoteRefs(ctx context.Context, remoteName string, opts ListOpts) (*[]*plumbing.Reference, error) {
 	log.Debugf("listing all references from repository: %v remote with opts: %v", r, opts)
 	return withAuth1(r.g, r.repo, func(auth transport.AuthMethod, url string) (*[]*plumbing.Reference, error) {
-		remote, err := r.r.Remote("origin")
+		if remoteName == "" {
+			remoteName = "origin"
+		}
+		remote, err := r.r.Remote(remoteName)
 		if err != nil {
 			return nil, fmt.Errorf("error fetching remote: %w", err)
 		}

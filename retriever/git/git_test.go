@@ -180,17 +180,6 @@ func TestGitSession_Set_Fetch_Hash_Short(t *testing.T) {
 
 // Verify setting the repository to a short hash reference with various fetch options.
 func TestGitSession_Set_Fetch_Hash_Short_Arbitrary(t *testing.T) {
-
-	// Skip the failing test.
-	// Note: The current go-git-version (v5.12.0) cannot fetch or clone a repository using an unknown short hash because
-	// the hash fails to be resolved as a remote reference when attempted to be fetched.
-	//
-	// However, the following workarounds are available:
-	// 1. Use the full hash: resolve it using the hash, just not an abbreviated one.
-	// 2. Use a tagged hash: if the hash is associated with a tag or branch then it can be fetched with its short hash.
-	// 3. Clone the entire repository: if a depth of zero is requested, then the hash is known and no fetch is required.
-	t.Skip()
-
 	tmp := t.TempDir()
 	cacher := NewPlainFscache(tmp)
 	g := NewWithCache(nil, cacher)
@@ -207,6 +196,7 @@ func TestGitSession_Set_Fetch_Hash_Short_Arbitrary(t *testing.T) {
 	require.Equal(t, pubRepoInitContent, string(file))
 
 	// Retrieve a different hash without fetching (which should fail because we don't know the hash yet).
+	// Note this assumes that gh was installed and authenticated to reach the repo
 	err = session.Set(context.Background(), pubRepo, pubRepoV1SHA[0:8], SessionSetOpts{Fetch: SessionOptFetchFalse, Verbose: true})
 	require.Error(t, err)
 
