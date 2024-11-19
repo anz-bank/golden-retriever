@@ -1,7 +1,7 @@
 package gitfs
 
 import (
-	"path"
+	"os"
 	"testing"
 
 	"github.com/go-git/go-git/v5"
@@ -27,7 +27,7 @@ func TestParseResource(t *testing.T) {
 	require.NoError(t, err)
 
 	fs := NewGitMemFs(commit)
-	file, err := fs.Stat(path.Join("once", "once.go"))
+	file, err := fs.Stat("once" + string(os.PathSeparator) + "once.go")
 	require.NoError(t, err)
 	require.NotNil(t, file)
 }
