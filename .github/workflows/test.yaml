@@ -12,6 +12,7 @@ jobs:
   test:
     name: Test
     strategy:
+      fail-fast: false
       matrix:
         os: ${{ vars.BUILD_AND_TEST_OS_MATRIX && fromJSON(vars.BUILD_AND_TEST_OS_MATRIX) || fromJSON('[ "ubuntu-latest", "macOS-latest", "windows-latest" ]') }}
     runs-on: ${{ matrix.os }}
@@ -25,6 +26,9 @@ jobs:
 
       - name: Check out
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}  # Needed to get the head of the branch for pull request events
+          fetch-depth: 0
 
       - name: Make Short Test
         if: ${{ github.repository_owner != 'anz-bank' }}

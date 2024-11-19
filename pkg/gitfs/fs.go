@@ -2,6 +2,7 @@ package gitfs
 
 import (
 	"os"
+	"strings"
 	"time"
 
 	"github.com/go-git/go-git/v5/plumbing/object"
@@ -18,6 +19,11 @@ func NewGitMemFs(c *object.Commit) afero.Fs {
 }
 
 func (g *gitMemFs) Open(name string) (afero.File, error) {
+	if os.PathSeparator != '/' {
+		// go-git requires paths be seperated by `/`
+		// see this line: https://github.com/go-git/go-git/blob/v5.12.0/plumbing/object/tree.go#L135
+		name = strings.ReplaceAll(name, string(os.PathSeparator), "/")
+	}
 	f, err := g.c.File(name)
 	if err != nil {
 		return nil, err
